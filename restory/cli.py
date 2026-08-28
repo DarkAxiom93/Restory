@@ -1,4 +1,4 @@
-"""Command-line interface for leash."""
+"""Command-line interface for restory."""
 
 from __future__ import annotations
 
@@ -11,22 +11,22 @@ import typer
 
 from .config import find_repo_root
 
-app = typer.Typer(help="leash command-line interface.")
+app = typer.Typer(help="restory command-line interface.")
 
-# Tools whose calls leash guards.
+# Tools whose calls restory guards.
 _MATCHER = "Bash|Write|Edit|MultiEdit"
 _HOOK_EVENTS = ("PreToolUse", "PostToolUse")
 
 
-def _leash_command(subcommand: str) -> str:
-    """Return a Windows-safe command string that invokes ``leash <subcommand>``.
+def _restory_command(subcommand: str) -> str:
+    """Return a Windows-safe command string that invokes ``restory <subcommand>``.
 
-    Prefer the ``leash`` console script if it is on PATH; otherwise fall back
-    to the absolute path of the current interpreter with ``-m leash``.
+    Prefer the ``restory`` console script if it is on PATH; otherwise fall back
+    to the absolute path of the current interpreter with ``-m restory``.
     """
-    if shutil.which("leash"):
-        return f"leash {subcommand}"
-    return f'"{sys.executable}" -m leash {subcommand}'
+    if shutil.which("restory"):
+        return f"restory {subcommand}"
+    return f'"{sys.executable}" -m restory {subcommand}'
 
 
 def _hook_block(command: str, *, matcher: str | None = None) -> dict:
@@ -48,7 +48,7 @@ def _entry_has_command(entries: list, command: str) -> bool:
 
 
 def _merge_hooks(settings: dict, command: str) -> dict:
-    """Merge leash PreToolUse/PostToolUse hook entries without clobbering others."""
+    """Merge restory PreToolUse/PostToolUse hook entries without clobbering others."""
     hooks = settings.setdefault("hooks", {})
     for event in _HOOK_EVENTS:
         entries = hooks.setdefault(event, [])
@@ -58,7 +58,7 @@ def _merge_hooks(settings: dict, command: str) -> dict:
 
 
 def _merge_session_start(settings: dict, command: str) -> dict:
-    """Merge a leash SessionStart hook entry without clobbering others."""
+    """Merge a restory SessionStart hook entry without clobbering others."""
     hooks = settings.setdefault("hooks", {})
     entries = hooks.setdefault("SessionStart", [])
     if not _entry_has_command(entries, command):
@@ -68,7 +68,7 @@ def _merge_session_start(settings: dict, command: str) -> dict:
 
 @app.command()
 def init() -> None:
-    """Install leash SessionStart + PreToolUse/PostToolUse hooks into .claude/settings.json."""
+    """Install restory SessionStart + PreToolUse/PostToolUse hooks into .claude/settings.json."""
     repo_root = find_repo_root()
     claude_dir = repo_root / ".claude"
     claude_dir.mkdir(parents=True, exist_ok=True)
@@ -87,8 +87,8 @@ def init() -> None:
     else:
         settings = {}
 
-    hook_command = _leash_command("hook")
-    session_command = _leash_command("session-start")
+    hook_command = _restory_command("hook")
+    session_command = _restory_command("session-start")
     settings = _merge_hooks(settings, hook_command)
     settings = _merge_session_start(settings, session_command)
 
@@ -125,9 +125,9 @@ def watch() -> None:
 def session_start() -> None:
     """Anchor a new session: ensure the shadow repo and record a baseline commit.
 
-    Installed as a Claude Code SessionStart hook by ``leash init`` so undo is
+    Installed as a Claude Code SessionStart hook by ``restory init`` so undo is
     armed automatically at the start of every session (no need to run
-    ``leash watch`` first).
+    ``restory watch`` first).
     """
     from . import snapshot, store
 
@@ -152,13 +152,13 @@ def undo(
 
     shadow = snapshot.get_shadow()
     if not shadow.exists():
-        typer.echo("No shadow repo found. Start a session (`leash session-start`) or run `leash watch` first.")
+        typer.echo("No shadow repo found. Start a session (`restory session-start`) or run `restory watch` first.")
         raise typer.Exit(1)
 
     if session:
         sess = store.latest_session()
         if sess is None:
-            typer.echo("No session anchor recorded. Run `leash session-start` first.")
+            typer.echo("No session anchor recorded. Run `restory session-start` first.")
             raise typer.Exit(1)
         try:
             changes = shadow.undo_to(sess["anchor_commit"])
@@ -199,7 +199,7 @@ def open(
     port: int = typer.Option(8765, help="Port to bind on 127.0.0.1."),
     no_browser: bool = typer.Option(False, "--no-browser", help="Do not open a browser."),
 ) -> None:
-    """Start the local leash server and open the timeline UI in a browser."""
+    """Start the local restory server and open the timeline UI in a browser."""
     import threading
     import webbrowser
 
@@ -208,7 +208,7 @@ def open(
     from .server import app as fastapi_app
 
     url = f"http://127.0.0.1:{port}/"
-    typer.echo(f"leash UI at {url} (Ctrl+C to stop)")
+    typer.echo(f"restory UI at {url} (Ctrl+C to stop)")
     if not no_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     uvicorn.run(fastapi_app, host="127.0.0.1", port=port, log_level="warning")

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-type LeashEvent = {
+type RestoryEvent = {
   id: number;
   timestamp: string;
   tool_name: string;
@@ -20,7 +20,7 @@ function fmtTime(ts: string): string {
   return d.toLocaleTimeString("en-GB", { hour12: false });
 }
 
-function EventCard({ ev }: { ev: LeashEvent }) {
+function EventCard({ ev }: { ev: RestoryEvent }) {
   const isFileOp = ["Write", "Edit", "MultiEdit"].includes(ev.tool_name);
   const sigil = isFileOp ? "±" : "$";
   return (
@@ -61,7 +61,7 @@ function EventCard({ ev }: { ev: LeashEvent }) {
 }
 
 export default function Home() {
-  const [events, setEvents] = useState<LeashEvent[]>([]);
+  const [events, setEvents] = useState<RestoryEvent[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [undoing, setUndoing] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -114,7 +114,7 @@ export default function Home() {
     <main className="shell">
       <div className="topbar">
         <div className="brand">
-          <b>leash</b>
+          <b>restory</b>
           <span>blast-radius monitor</span>
         </div>
         <div className="live">

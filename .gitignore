@@ -9,13 +9,14 @@ dist/
 
 # Node / UI
 node_modules/
-leash/ui/.next/
-leash/ui/out/
+restory/ui/.next/
+restory/ui/out/
 
-# leash local data
-.leash/
+# restory local data
+.restory/
 
 # Editor / OS
 .vscode/
 .idea/
 Thumbs.db
+.claude/

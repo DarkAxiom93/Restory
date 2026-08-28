@@ -9,7 +9,7 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "leash — session timeline",
+  title: "restory — session timeline",
   description: "Live blast-radius timeline of guarded tool calls.",
 };
 

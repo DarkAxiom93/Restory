@@ -1,4 +1,4 @@
-"""Configuration and path resolution for leash.
+"""Configuration and path resolution for restory.
 
 All paths use :class:`pathlib.Path` so behavior is correct on Windows,
 macOS, and Linux alike.
@@ -24,13 +24,13 @@ def find_repo_root(start: Path | None = None) -> Path:
 
 
 def get_data_dir() -> Path:
-    """Return the leash data directory, creating it if necessary.
+    """Return the restory data directory, creating it if necessary.
 
-    Located at ``%USERPROFILE%/.leash`` on Windows, falling back to the
+    Located at ``%USERPROFILE%/.restory`` on Windows, falling back to the
     user's home directory on other platforms.
     """
     home = Path(os.environ.get("USERPROFILE") or Path.home())
-    data_dir = home / ".leash"
+    data_dir = home / ".restory"
     data_dir.mkdir(parents=True, exist_ok=True)
     return data_dir
 

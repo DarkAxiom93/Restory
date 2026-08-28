@@ -1,7 +1,7 @@
-"""Shadow-git snapshotting for leash.
+"""Shadow-git snapshotting for restory.
 
 We never touch the user's real ``.git``. Instead we keep a *shadow* git
-repository whose ``GIT_DIR`` lives under the leash data directory and whose
+repository whose ``GIT_DIR`` lives under the restory data directory and whose
 work tree is the user's repo root. Every git invocation is an explicit
 ``subprocess`` call with its own ``cwd`` and ``env`` so the shadow database
 and the (possibly present) real ``.git`` never interfere. Designed to work
@@ -12,7 +12,7 @@ Layout::
     <data_dir>/<repo-hash>/shadow/   <- GIT_DIR (objects, refs, HEAD, config)
 
 The shadow lives outside the work tree, so git cannot try to version its own
-database. We additionally always ignore ``node_modules`` and ``.leash`` via
+database. We additionally always ignore ``node_modules`` and ``.restory`` via
 the shadow's ``info/exclude`` (the repo's own ``.gitignore`` is respected
 automatically).
 """
@@ -28,7 +28,7 @@ from pathlib import Path
 
 from .config import find_repo_root, get_data_dir
 
-_ALWAYS_IGNORE = ("node_modules/", ".leash/")
+_ALWAYS_IGNORE = ("node_modules/", ".restory/")
 
 
 class SnapshotError(RuntimeError):
@@ -64,10 +64,10 @@ class Shadow:
         # Deterministic, non-interactive, don't inherit the user's system config.
         env["GIT_CONFIG_NOSYSTEM"] = "1"
         env["GIT_TERMINAL_PROMPT"] = "0"
-        env["GIT_AUTHOR_NAME"] = "leash"
-        env["GIT_AUTHOR_EMAIL"] = "leash@localhost"
-        env["GIT_COMMITTER_NAME"] = "leash"
-        env["GIT_COMMITTER_EMAIL"] = "leash@localhost"
+        env["GIT_AUTHOR_NAME"] = "restory"
+        env["GIT_AUTHOR_EMAIL"] = "restory@localhost"
+        env["GIT_COMMITTER_NAME"] = "restory"
+        env["GIT_COMMITTER_EMAIL"] = "restory@localhost"
         return env
 
     def _git(self, args: list[str], *, check: bool = True) -> subprocess.CompletedProcess:
@@ -100,17 +100,17 @@ class Shadow:
         self._git(["config", "core.fileMode", "false"])
         self._git(["config", "core.longpaths", "true"])  # Windows long paths
         self._git(["config", "commit.gpgsign", "false"])
-        self._git(["config", "user.name", "leash"])
-        self._git(["config", "user.email", "leash@localhost"])
+        self._git(["config", "user.name", "restory"])
+        self._git(["config", "user.email", "restory@localhost"])
         self._write_exclude()
         self._git(["add", "-A"])
-        self._git(["commit", "--allow-empty", "-q", "-m", "leash: initial snapshot"])
+        self._git(["commit", "--allow-empty", "-q", "-m", "restory: initial snapshot"])
 
     def _write_exclude(self) -> None:
         info_dir = self.git_dir / "info"
         info_dir.mkdir(parents=True, exist_ok=True)
         (info_dir / "exclude").write_text(
-            "\n".join(("# leash always-ignore", *_ALWAYS_IGNORE, "")),
+            "\n".join(("# restory always-ignore", *_ALWAYS_IGNORE, "")),
             encoding="utf-8",
         )
 
@@ -130,7 +130,7 @@ class Shadow:
         proc = self._git(["status", "--porcelain"])
         if not proc.stdout.strip():
             return None
-        self._git(["commit", "-q", "-m", f"leash: event {event_id}"])
+        self._git(["commit", "-q", "-m", f"restory: event {event_id}"])
         return self._git(["rev-parse", "HEAD"]).stdout.strip()
 
     def session_baseline(self) -> str:
@@ -144,7 +144,7 @@ class Shadow:
         self._git(["add", "-A"])
         proc = self._git(["status", "--porcelain"])
         if proc.stdout.strip():
-            self._git(["commit", "-q", "-m", "leash: session baseline"])
+            self._git(["commit", "-q", "-m", "restory: session baseline"])
         return self._git(["rev-parse", "HEAD"]).stdout.strip()
 
     def _changes_between(self, old: str, new: str) -> list[ChangeEntry]:

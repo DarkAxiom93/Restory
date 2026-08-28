@@ -1,11 +1,11 @@
-"""Local FastAPI server for the leash timeline UI.
+"""Local FastAPI server for the restory timeline UI.
 
 Binds to 127.0.0.1 only. Exposes:
 
     GET  /api/events   -> recorded events, newest first
     POST /api/undo     -> revert the most recent shadow snapshot
 
-and serves the statically-exported Next.js app from ``leash/ui/out`` at ``/``.
+and serves the statically-exported Next.js app from ``restory/ui/out`` at ``/``.
 No auth, no external calls.
 """
 
@@ -47,7 +47,7 @@ def _shape_event(ev: dict) -> dict:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="leash", docs_url=None, redoc_url=None)
+    app = FastAPI(title="restory", docs_url=None, redoc_url=None)
 
     @app.get("/api/events")
     def get_events(limit: int = 500) -> JSONResponse:
@@ -59,7 +59,7 @@ def create_app() -> FastAPI:
         shadow = snapshot.get_shadow()
         if not shadow.exists():
             return JSONResponse(
-                {"ok": False, "message": "No shadow repo. Run `leash watch` first."},
+                {"ok": False, "message": "No shadow repo. Run `restory watch` first."},
                 status_code=409,
             )
         try:
@@ -82,8 +82,8 @@ def create_app() -> FastAPI:
         @app.get("/", response_class=HTMLResponse)
         def _no_ui() -> str:
             return (
-                "<h1>leash</h1><p>UI not built. Run the Next.js export into "
-                "<code>leash/ui/out</code>.</p>"
+                "<h1>restory</h1><p>UI not built. Run the Next.js export into "
+                "<code>restory/ui/out</code>.</p>"
             )
 
     return app

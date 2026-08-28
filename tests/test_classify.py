@@ -1,4 +1,4 @@
-"""Tests for leash.classify blast-radius classification."""
+"""Tests for restory.classify blast-radius classification."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from leash.classify import ClassifyResult, classify
+from restory.classify import ClassifyResult, classify
 
 
 def bash(command: str, repo_root: Path | None = None) -> ClassifyResult:

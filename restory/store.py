@@ -1,7 +1,7 @@
-"""SQLite-backed session store for leash events.
+"""SQLite-backed session store for restory events.
 
-The database lives in the leash data directory (``%USERPROFILE%/.leash`` on
-Windows) as ``leash.db``. There is a single ``events`` table.
+The database lives in the restory data directory (``%USERPROFILE%/.restory`` on
+Windows) as ``restory.db``. There is a single ``events`` table.
 """
 
 from __future__ import annotations
@@ -33,8 +33,8 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 
 def get_db_path() -> Path:
-    """Return the path to the leash SQLite database."""
-    return get_data_dir() / "leash.db"
+    """Return the path to the restory SQLite database."""
+    return get_data_dir() / "restory.db"
 
 
 def connect(db_path: Path | None = None) -> sqlite3.Connection:

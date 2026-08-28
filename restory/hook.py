@@ -54,7 +54,7 @@ def main() -> int:
             raw=payload,
         )
     except Exception as exc:  # pragma: no cover - defensive
-        print(f"leash: failed to record event: {exc}", file=sys.stderr)
+        print(f"restory: failed to record event: {exc}", file=sys.stderr)
         event_id = None
 
     # On PostToolUse mutations, snapshot the work tree into the shadow repo
@@ -72,7 +72,7 @@ def main() -> int:
             if shadow.exists():
                 shadow.snapshot(event_id if event_id is not None else "unknown")
         except Exception as exc:  # pragma: no cover - defensive
-            print(f"leash: snapshot failed: {exc}", file=sys.stderr)
+            print(f"restory: snapshot failed: {exc}", file=sys.stderr)
 
     if result.danger:
         decision = {"decision": "block", "reason": result.reason}

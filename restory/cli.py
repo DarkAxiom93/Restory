@@ -189,9 +189,107 @@ def undo(
 
 
 @app.command()
-def report() -> None:
-    """Generate a report."""
-    typer.echo("TODO: report")
+def report(
+    json_output: bool = typer.Option(
+        False, "--json", help="Emit the report as JSON instead of a formatted table."
+    ),
+) -> None:
+    """Summarize the current session: events, blocks, tags, and blocked commands.
+
+    Read-only: reads the recorded events from the SQLite store and never
+    modifies the store or the work tree.
+    """
+    from . import report as report_mod
+
+    data = report_mod.gather()
+    if json_output:
+        typer.echo(report_mod.as_json(data))
+    else:
+        report_mod.render(data)
+
+
+@app.command()
+def export(
+    output: Path = typer.Argument(
+        None, help="File to write the report to. Prints to stdout if omitted."
+    ),
+    format: str = typer.Option(
+        None,
+        "--format",
+        "-f",
+        help="Output format: md (default), json, or html. Inferred from the "
+        "output extension when not given.",
+    ),
+) -> None:
+    """Export the current session as a shareable Markdown/JSON/HTML artifact.
+
+    Read-only: reads the recorded events and never modifies the store or the
+    work tree.
+    """
+    from . import export as export_mod
+
+    _ext_fmt = {".md": "md", ".markdown": "md", ".json": "json", ".html": "html", ".htm": "html"}
+    if format is None:
+        format = _ext_fmt.get(output.suffix.lower(), "md") if output is not None else "md"
+    format = format.lower()
+    if format not in export_mod.FORMATS:
+        typer.echo(f"Unknown format {format!r}. Choose from: {', '.join(export_mod.FORMATS)}.")
+        raise typer.Exit(2)
+
+    data = export_mod.gather()
+    rendered = export_mod.render(data, fmt=format)
+
+    if output is None:
+        # Write UTF-8 bytes straight to stdout so emoji/box glyphs survive a
+        # legacy Windows console (cp1252), which typer.echo would choke on.
+        try:
+            sys.stdout.buffer.write(rendered.encode("utf-8"))
+            sys.stdout.buffer.write(b"\n")
+            sys.stdout.buffer.flush()
+        except (AttributeError, ValueError):  # no binary buffer (e.g. captured)
+            typer.echo(rendered)
+    else:
+        output.write_text(rendered, encoding="utf-8")
+        typer.echo(f"Wrote {format} report to {output}")
+
+
+@app.command()
+def diff(
+    stat: bool = typer.Option(
+        False, "--stat", help="Show only the summary (files + counts), not the patch."
+    ),
+    name_only: bool = typer.Option(
+        False, "--name-only", help="List only the changed file paths."
+    ),
+) -> None:
+    """Show what changed in the work tree since the current session started.
+
+    Diffs the session anchor commit against the present work tree via the
+    shadow repo. Read-only: never modifies the work tree or the shadow.
+    """
+    from . import diff as diff_mod
+
+    if stat and name_only:
+        typer.echo("Use only one of --stat or --name-only.")
+        raise typer.Exit(2)
+
+    mode = "stat" if stat else "name-only" if name_only else "full"
+    data = diff_mod.gather(mode=mode)
+    diff_mod.render(data, mode=mode)
+
+
+@app.command()
+def status() -> None:
+    """Show a quick, read-only health-check snapshot of the current state.
+
+    Reports whether the session is armed, its id and start time, this session's
+    event/block counts, whether the shadow repo exists (and where), and whether
+    the UI is built. Read-only: never modifies the store or the work tree.
+    """
+    from . import status as status_mod
+
+    data = status_mod.build_status()
+    status_mod.render(data)
 
 
 @app.command()

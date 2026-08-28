@@ -90,29 +90,48 @@ def fetch_events(limit: int = 500, db_path: Path | None = None) -> list[dict]:
     finally:
         conn.close()
 
-    events: list[dict] = []
-    for row in rows:
-        rid, ts, tool_name, tags_json, danger, reason, raw_json = row
-        try:
-            tags = json.loads(tags_json)
-        except (json.JSONDecodeError, TypeError):
-            tags = []
-        try:
-            raw = json.loads(raw_json)
-        except (json.JSONDecodeError, TypeError):
-            raw = {}
-        events.append(
-            {
-                "id": rid,
-                "timestamp": ts,
-                "tool_name": tool_name,
-                "tags": tags,
-                "danger": bool(danger),
-                "reason": reason,
-                "raw": raw,
-            }
-        )
-    return events
+    return [_row_to_event(row) for row in rows]
+
+
+def _row_to_event(row) -> dict:
+    rid, ts, tool_name, tags_json, danger, reason, raw_json = row
+    try:
+        tags = json.loads(tags_json)
+    except (json.JSONDecodeError, TypeError):
+        tags = []
+    try:
+        raw = json.loads(raw_json)
+    except (json.JSONDecodeError, TypeError):
+        raw = {}
+    return {
+        "id": rid,
+        "timestamp": ts,
+        "tool_name": tool_name,
+        "tags": tags,
+        "danger": bool(danger),
+        "reason": reason,
+        "raw": raw,
+    }
+
+
+def fetch_events_since(
+    started_at: str, limit: int = 5000, db_path: Path | None = None
+) -> list[dict]:
+    """Return events with ``timestamp >= started_at``, newest-first.
+
+    Timestamps are ISO-8601 UTC strings, so lexicographic comparison in SQL
+    matches chronological order. Used to scope a report to a single session.
+    """
+    conn = connect(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT id, timestamp, tool_name, tags, danger, reason, raw "
+            "FROM events WHERE timestamp >= ? ORDER BY id DESC LIMIT ?",
+            (started_at, limit),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [_row_to_event(row) for row in rows]
 
 
 def count_events(db_path: Path | None = None) -> int:

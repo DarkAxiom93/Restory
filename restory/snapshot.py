@@ -70,11 +70,22 @@ class Shadow:
         env["GIT_COMMITTER_EMAIL"] = "restory@localhost"
         return env
 
-    def _git(self, args: list[str], *, check: bool = True) -> subprocess.CompletedProcess:
+    def _git(
+        self,
+        args: list[str],
+        *,
+        check: bool = True,
+        index: str | None = None,
+    ) -> subprocess.CompletedProcess:
+        env = self._env()
+        if index is not None:
+            # Operate against a throwaway index so the shadow's real index is
+            # left untouched (used by read-only diffing).
+            env["GIT_INDEX_FILE"] = index
         proc = subprocess.run(
             [_git_exe(), *args],
             cwd=str(self.repo_root),
-            env=self._env(),
+            env=env,
             capture_output=True,
             text=True,
         )
@@ -201,6 +212,57 @@ class Shadow:
 
         self._git(["reset", "--hard", "-q", target])
         return changes
+
+    # -- read-only diffing ------------------------------------------------ #
+
+    def diff_against(self, anchor: str, *, fmt: str = "full") -> str:
+        """Return the diff between ``anchor`` and the current work tree.
+
+        Read-only: seeds a throwaway index from ``anchor``'s tree, stages the
+        work tree into it (so added/deleted/untracked files are all captured,
+        honouring the shadow's ignore rules), and diffs the anchor against that
+        temporary index. Neither the work tree, the shadow's real index, nor
+        any commit is modified.
+
+        ``fmt`` selects the git diff format: ``"full"`` (patch), ``"stat"``,
+        ``"name-only"``, or ``"name-status"``.
+        """
+        verify = self._git(
+            ["rev-parse", "--verify", "-q", f"{anchor}^{{commit}}"], check=False
+        )
+        if verify.returncode != 0:
+            raise SnapshotError(f"unknown anchor commit: {anchor}")
+        target = verify.stdout.strip()
+
+        fmt_args = {
+            "full": [],
+            "stat": ["--stat"],
+            "name-only": ["--name-only"],
+            "name-status": ["--name-status"],
+        }.get(fmt)
+        if fmt_args is None:
+            raise ValueError(f"unknown diff format: {fmt!r}")
+
+        import tempfile
+
+        fd, tmp = tempfile.mkstemp(
+            prefix="restory-diff-", suffix=".index", dir=str(self.git_dir)
+        )
+        os.close(fd)
+        try:
+            # Populate the temp index from the anchor tree, then reconcile it
+            # with the current work tree.
+            self._git(["read-tree", target], index=tmp)
+            self._git(["add", "-A"], index=tmp)
+            proc = self._git(
+                ["diff", "--cached", *fmt_args, target], index=tmp
+            )
+            return proc.stdout
+        finally:
+            try:
+                Path(tmp).unlink()
+            except OSError:
+                pass
 
 
 # --------------------------------------------------------------------------- #

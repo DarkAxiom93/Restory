@@ -20,3 +20,7 @@ restory/ui/out/
 .idea/
 Thumbs.db
 .claude/
+
+dist/
+test-env/
+*.whl

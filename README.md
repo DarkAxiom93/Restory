@@ -23,6 +23,18 @@ AI coding agents (Claude Code, Cursor, Copilot) run as *you* — with your files
 - ↩️ **One-command restore** — `restory undo --session` snaps your whole working tree back to where the session started.
 - 🔒 **Local-only** — no accounts, no cloud, nothing leaves your machine.
 
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| `restory init` | Install hooks into your agent (writes to `.claude/settings.json`) |
+| `restory open` | Open the live blast-radius timeline in your browser |
+| `restory report` | Print a terminal summary of the session (add `--json` for machine output) |
+| `restory status` | Quick health check: is the session armed, shadow ready, UI built? |
+| `restory diff` | Show what the agent changed since the session started (`--stat`, `--name-only`) |
+| `restory export` | Export the session as a shareable report (`--format md/json/html`) |
+| `restory undo --session` | Snap your whole working tree back to where the session started |
+
 ## Install
 
 ```bash

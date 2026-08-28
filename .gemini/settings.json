@@ -1,0 +1,36 @@
+{
+  "hooks": {
+    "BeforeTool": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "restory hook"
+          }
+        ],
+        "matcher": "run_shell_command|write_file|replace"
+      }
+    ],
+    "AfterTool": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "restory hook"
+          }
+        ],
+        "matcher": "run_shell_command|write_file|replace"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "restory session-start"
+          }
+        ]
+      }
+    ]
+  }
+}

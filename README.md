@@ -27,8 +27,9 @@ AI coding agents (Claude Code, Cursor, Copilot) run as *you* — with your files
 
 | Command | What it does |
 | --- | --- |
-| `restory init` | Install hooks into your agent (writes to `.claude/settings.json`) |
+| `restory init` | Install hooks into your agent — Claude Code by default (`.claude/settings.json`), or `--agent gemini` for Gemini CLI (`.gemini/settings.json`) |
 | `restory open` | Open the live blast-radius timeline in your browser |
+| `restory monitor` | Live full-screen terminal dashboard — the TUI counterpart to `open` (`q` quit, `u` undo, `c` clear) |
 | `restory report` | Print a terminal summary of the session (add `--json` for machine output) |
 | `restory status` | Quick health check: is the session armed, shadow ready, UI built? |
 | `restory diff` | Show what the agent changed since the session started (`--stat`, `--name-only`) |
@@ -39,8 +40,9 @@ AI coding agents (Claude Code, Cursor, Copilot) run as *you* — with your files
 
 ```bash
 pip install restory
-restory init        # installs hooks into .claude/settings.json
-restory open        # opens the live timeline at http://127.0.0.1:8765
+restory init                 # installs hooks for Claude Code (.claude/settings.json)
+restory init --agent gemini  # or for Gemini CLI (.gemini/settings.json)
+restory open                 # opens the live timeline at http://127.0.0.1:8765
 ```
 
 Works on Windows, macOS, and Linux. Hook-based — no kernel driver, no container.
@@ -55,7 +57,7 @@ Being honest, because security tools that overpromise get torn apart:
 
 ## How it works
 
-`restory init` installs `PreToolUse` / `PostToolUse` / `SessionStart` hooks. Every tool call the agent makes is classified for blast radius; dangerous effects are blocked with a reason, everything is logged to a local SQLite store, and the working tree is snapshotted to a shadow git repo so `undo` is exact.
+`restory init` installs pre/post tool-use and session-start hooks for your agent (`PreToolUse` / `PostToolUse` on Claude Code, the equivalent `BeforeTool` / `AfterTool` on Gemini CLI). A thin adapter layer normalizes each agent's hook payload into one canonical shape and formats the decision each agent expects, so the classifier, store, and snapshot logic are shared unchanged across agents. Every tool call the agent makes is classified for blast radius; dangerous effects are blocked with a reason, everything is logged to a local SQLite store, and the working tree is snapshotted to a shadow git repo so `undo` is exact.
 
 ## License
 

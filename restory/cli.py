@@ -2,20 +2,16 @@
 
 from __future__ import annotations
 
-import json
 import shutil
 import sys
 from pathlib import Path
 
 import typer
 
+from . import adapters
 from .config import find_repo_root
 
 app = typer.Typer(help="restory command-line interface.")
-
-# Tools whose calls restory guards.
-_MATCHER = "Bash|Write|Edit|MultiEdit"
-_HOOK_EVENTS = ("PreToolUse", "PostToolUse")
 
 
 def _restory_command(subcommand: str) -> str:
@@ -29,74 +25,39 @@ def _restory_command(subcommand: str) -> str:
     return f'"{sys.executable}" -m restory {subcommand}'
 
 
-def _hook_block(command: str, *, matcher: str | None = None) -> dict:
-    block: dict = {"hooks": [{"type": "command", "command": command}]}
-    if matcher is not None:
-        block["matcher"] = matcher
-    return block
-
-
-def _entry_has_command(entries: list, command: str) -> bool:
-    return any(
-        isinstance(entry, dict)
-        and any(
-            isinstance(h, dict) and command == h.get("command")
-            for h in entry.get("hooks", [])
-        )
-        for entry in entries
-    )
-
-
-def _merge_hooks(settings: dict, command: str) -> dict:
-    """Merge restory PreToolUse/PostToolUse hook entries without clobbering others."""
-    hooks = settings.setdefault("hooks", {})
-    for event in _HOOK_EVENTS:
-        entries = hooks.setdefault(event, [])
-        if not _entry_has_command(entries, command):
-            entries.append(_hook_block(command, matcher=_MATCHER))
-    return settings
-
-
-def _merge_session_start(settings: dict, command: str) -> dict:
-    """Merge a restory SessionStart hook entry without clobbering others."""
-    hooks = settings.setdefault("hooks", {})
-    entries = hooks.setdefault("SessionStart", [])
-    if not _entry_has_command(entries, command):
-        entries.append(_hook_block(command))
-    return settings
-
-
 @app.command()
-def init() -> None:
-    """Install restory SessionStart + PreToolUse/PostToolUse hooks into .claude/settings.json."""
+def init(
+    agent: str = typer.Option(
+        adapters.DEFAULT_AGENT,
+        "--agent",
+        help=(
+            "Coding agent to install hooks for. One of: "
+            f"{', '.join(adapters.agent_keys())} (default: {adapters.DEFAULT_AGENT})."
+        ),
+    ),
+) -> None:
+    """Install restory SessionStart + pre/post tool-use hooks for a coding agent.
+
+    Defaults to Claude Code (``.claude/settings.json``); ``--agent gemini``
+    writes ``.gemini/settings.json`` instead. The same ``restory hook``
+    entrypoint serves every agent — it detects the payload shape at run time.
+    """
+    try:
+        adapter = adapters.get_adapter(agent)
+    except ValueError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(2)
+
     repo_root = find_repo_root()
-    claude_dir = repo_root / ".claude"
-    claude_dir.mkdir(parents=True, exist_ok=True)
-    settings_path = claude_dir / "settings.json"
-
-    if settings_path.exists():
-        backup = settings_path.with_suffix(".json.bak")
-        shutil.copy2(settings_path, backup)
-        typer.echo(f"Backed up existing settings to {backup}")
-        try:
-            settings = json.loads(settings_path.read_text(encoding="utf-8"))
-            if not isinstance(settings, dict):
-                settings = {}
-        except (json.JSONDecodeError, OSError):
-            settings = {}
-    else:
-        settings = {}
-
     hook_command = _restory_command("hook")
     session_command = _restory_command("session-start")
-    settings = _merge_hooks(settings, hook_command)
-    settings = _merge_session_start(settings, session_command)
 
-    rendered = json.dumps(settings, indent=2)
-    settings_path.write_text(rendered + "\n", encoding="utf-8")
+    result = adapter.install(repo_root, hook_command, session_command)
 
-    typer.echo(f"Wrote {settings_path}:")
-    typer.echo(rendered)
+    if result.backup_path is not None:
+        typer.echo(f"Backed up existing settings to {result.backup_path}")
+    typer.echo(f"Wrote {result.settings_path} ({adapter.label}):")
+    typer.echo(result.rendered)
 
 
 @app.command()
@@ -290,6 +251,20 @@ def status() -> None:
 
     data = status_mod.build_status()
     status_mod.render(data)
+
+
+@app.command()
+def monitor() -> None:
+    """Open a live, full-screen terminal dashboard of session events.
+
+    The terminal-native counterpart to ``restory open``: polls the SQLite store
+    ~once a second and shows events newest-first, blocked ones highlighted in
+    red. Keys: ``q`` quit, ``u`` undo the session (with confirmation), ``c``
+    clear the view. Read-only except for the explicit undo action.
+    """
+    from . import tui
+
+    tui.run()
 
 
 @app.command()

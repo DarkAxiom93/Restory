@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "restory"
-version = "0.1.1"
+version = "0.2.0"
 description = "Restory CLI"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,6 +13,7 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn>=0.29",
     "rich>=13",
+    "textual>=0.60",
 ]
 
 [project.scripts]

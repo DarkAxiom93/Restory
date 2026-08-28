@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_tmp/
+.pytest-tmp/
+
+# Node / UI
+node_modules/
+leash/ui/.next/
+leash/ui/out/
+
+# leash local data
+.leash/
+
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db

@@ -63,6 +63,43 @@ _SHELL_CMDS = {"sh", "bash", "zsh", "dash", "ash"}
 # Interpreters whose ``-c``/``-e`` one-liner body we cannot statically inspect.
 _INTERP_CMDS = {"python", "python3", "node", "nodejs", "perl", "ruby"}
 
+# Commands that can execute a script file passed as an argument. Used to detect
+# the "download a file, then run it" pattern across command segments.
+_SCRIPT_RUNNERS = _SHELL_CMDS | _INTERP_CMDS | {"source", "."}
+
+# Permission/ownership mutators.
+_PERM_CMDS = {"chmod", "chown", "chgrp"}
+
+# Shell startup / history files whose contents are sourced on every new shell,
+# making them a persistence foothold. Compared by basename (lowercased).
+_SHELL_CONFIG_FILES = {
+    ".bashrc",
+    ".bash_profile",
+    ".bash_login",
+    ".bash_logout",
+    ".profile",
+    ".bash_history",
+    ".zshrc",
+    ".zprofile",
+    ".zshenv",
+    ".zlogin",
+    ".zlogout",
+}
+
+# Rooted system locations a symlink should never point into.
+_SENSITIVE_PATH_PREFIXES = (
+    "/etc/",
+    "/root/",
+    "/var/",
+    "/boot/",
+    "/sys/",
+    "/proc/",
+    "/usr/",
+)
+
+# Dot-directories anywhere in a path that hold credentials/keys.
+_SENSITIVE_DOTDIRS = {".ssh", ".aws", ".gnupg"}
+
 # Keywords that betray a delete or network verb inside an interpreter one-liner.
 _CODE_DELETE_KW = (
     "unlink",
@@ -99,8 +136,13 @@ _MAX_SUBST_DEPTH = 4
 # Tag → reason priority (most severe first).
 _TAG_PRIORITY = (
     "pipe-to-shell",
+    "download-execute",
     "uninspectable",
+    "persistence",
+    "shell-config-tamper",
+    "symlink-attack",
     "mass-delete",
+    "perm-change",
     "git-hook-write",
     "git-destructive",
     "net-egress",
@@ -391,6 +433,42 @@ def _is_local(host: str) -> bool:
     return h.startswith(("127.", "10.", "192.168.", "169.254.")) or h == "::1"
 
 
+def _is_sensitive_symlink_target(token: str, repo_root: Path) -> bool:
+    """True if ``token`` points at a secret file, a system location, or anything
+    outside the repo — the destinations a malicious symlink is built to reach.
+
+    The rooted-prefix and dot-directory checks are platform-independent (they
+    work off the literal path text), so ``/etc/passwd`` and ``~/.ssh`` are
+    flagged even when tested on Windows, where they would otherwise resolve
+    *inside* the repo root.
+    """
+    if _matches_secret(token):
+        return True
+    expanded = os.path.expandvars(os.path.expanduser(token))
+    low = expanded.replace("\\", "/").lower()
+    parts = [p for p in low.split("/") if p]
+    if any(p in _SENSITIVE_DOTDIRS for p in parts):
+        return True
+    if low in ("/etc/passwd", "/etc/shadow", "/etc/sudoers", "/root"):
+        return True
+    if low.startswith(_SENSITIVE_PATH_PREFIXES):
+        return True
+    resolved = _resolve_target(token, repo_root)
+    if not _is_inside(resolved, repo_root):
+        return True
+    return False
+
+
+def _is_world_writable_mode(token: str) -> bool:
+    """True for a chmod mode that grants write to *others* (e.g. ``777``, ``666``,
+    ``o+w``, ``a+w``). Numeric modes whose others-digit lacks the write bit
+    (``755``, ``700``, ``644``) and pure ``+x`` are not world-writable."""
+    if token.isdigit() and len(token) in (3, 4):
+        return bool(int(token[-1]) & 0o2)
+    low = token.lower()
+    return any(sym in low for sym in ("o+w", "a+w", "+rwx", "go+w")) or low == "+w"
+
+
 # --------------------------------------------------------------------------- #
 # Per-command detectors
 # --------------------------------------------------------------------------- #
@@ -553,6 +631,172 @@ def _detect_redirect_writes(segment: str, repo_root: Path):
     return results
 
 
+def _detect_symlink_attack(cmd: str, tokens: list[str], repo_root: Path) -> str | None:
+    """Flag ``ln -s`` whose target is a secret file, a system path, or anything
+    outside the repo. A symlink into the repo (``ln -s ./dist ./latest``) is a
+    normal build convenience and is left alone."""
+    if cmd != "ln":
+        return None
+    short = [t for t in tokens[1:] if t.startswith("-") and not t.startswith("--")]
+    longf = [t.lower() for t in tokens[1:] if t.startswith("--")]
+    symbolic = any("s" in f.lower() for f in short) or "--symbolic" in longf
+    if not symbolic:
+        return None
+    for op in (t for t in tokens[1:] if not t.startswith("-")):
+        if _is_sensitive_symlink_target(op, repo_root):
+            return f"symlink-attack: ln -s points at sensitive location {op}"
+    return None
+
+
+def _detect_perm_change(
+    cmd: str, tokens: list[str], segment: str, repo_root: Path
+) -> str | None:
+    """Flag permission/ownership changes with a broad or sensitive blast radius:
+    a world-writable mode, a recursive change over the repo/home, or any change
+    to a secret file or a target outside the repo. A scoped, non-world-writable
+    change inside the repo (``chmod +x build.sh``) is left alone."""
+    if cmd not in _PERM_CMDS:
+        return None
+    recursive = False
+    for t in tokens[1:]:
+        low = t.lower()
+        if low in ("-r", "--recursive"):
+            recursive = True
+        elif t.startswith("-") and not t.startswith("--") and "r" in low:
+            recursive = True
+    operands = [t for t in tokens[1:] if not t.startswith("-")]
+    mode = operands[0] if operands else None
+    targets = operands[1:]
+
+    if cmd == "chmod" and mode and _is_world_writable_mode(mode):
+        return f"perm-change: chmod grants world-write ({mode})"
+
+    if recursive:
+        for tgt in targets:
+            scope = _classify_delete_target(tgt, repo_root)
+            if scope:
+                return f"perm-change: {cmd} -R over the {scope}"
+        if _has_unquoted_tilde_target(segment):
+            return f"perm-change: {cmd} -R over the home directory (~)"
+
+    for tgt in targets:
+        if _matches_secret(tgt):
+            return f"perm-change: {cmd} on secret file {tgt}"
+        resolved = _resolve_target(tgt, repo_root)
+        if not _is_inside(resolved, repo_root):
+            return f"perm-change: {cmd} on {tgt} outside the repo"
+    if _has_unquoted_tilde_target(segment):
+        return f"perm-change: {cmd} targets the home directory (~)"
+    return None
+
+
+def _download_output_names(tokens: list[str]) -> list[str]:
+    """Basenames of files a ``curl``/``wget`` invocation writes to disk.
+
+    ``-O-`` / ``-o -`` (write to stdout) yield no file and are ignored — that is
+    the pipe-to-shell case, handled elsewhere.
+    """
+    names: list[str] = []
+    i = 1
+    n = len(tokens)
+    while i < n:
+        t = tokens[i]
+        if t in ("-o", "-O", "--output", "--output-document"):
+            if i + 1 < n:
+                val = tokens[i + 1]
+                if val != "-" and not val.startswith("-"):
+                    names.append(_basename_cmd(val))
+                i += 2
+                continue
+        elif (t.startswith("-o") or t.startswith("-O")) and len(t) > 2:
+            val = t[2:]
+            if val != "-" and not val.startswith("-"):
+                names.append(_basename_cmd(val))
+        i += 1
+    return names
+
+
+def _detect_download_execute(command: str, repo_root: Path) -> str | None:
+    """Flag "download a file, then run it" chains that pipe-to-shell misses:
+    ``curl -o s.sh URL && ./s.sh`` or ``wget -O s URL; bash s``. The download
+    and the execution live in separate segments, so this correlates across the
+    whole command."""
+    segments = _split_segments(command)
+    downloaded: set[str] = set()
+    for seg in segments:
+        toks = _tokenize(seg)
+        if not toks or _basename_cmd(toks[0]) not in ("curl", "wget"):
+            continue
+        downloaded.update(_download_output_names(toks))
+        for tgt in _extract_redirect_targets(seg):
+            if tgt.replace("\\", "/").lower() not in _NULL_SINKS:
+                downloaded.add(_basename_cmd(tgt))
+    downloaded.discard("")
+    if not downloaded:
+        return None
+    for seg in segments:
+        toks = _tokenize(seg)
+        if not toks:
+            continue
+        first = _basename_cmd(toks[0])
+        if first in downloaded:
+            return f"download-execute: downloaded file is executed ({toks[0]})"
+        if first in _SCRIPT_RUNNERS:
+            for a in toks[1:]:
+                if not a.startswith("-") and _basename_cmd(a) in downloaded:
+                    return f"download-execute: downloaded file run via {first} ({a})"
+    return None
+
+
+def _detect_shell_config_tamper(
+    cmd: str, tokens: list[str], segment: str, repo_root: Path
+) -> str | None:
+    """Flag writes/appends into a shell startup or history file *outside* the
+    repo (the user's real ``~/.bashrc`` etc.), where they would persist across
+    sessions. A same-named file tracked inside the repo (a dotfiles project) is
+    left alone."""
+
+    def _is_home_config(raw: str) -> bool:
+        if _basename_cmd(raw) not in _SHELL_CONFIG_FILES:
+            return False
+        return not _is_inside(_resolve_target(raw, repo_root), repo_root)
+
+    for tgt in _extract_redirect_targets(segment):
+        if _is_home_config(tgt):
+            return f"shell-config-tamper: write to shell startup file {tgt}"
+    if cmd == "tee":
+        for t in tokens[1:]:
+            if not t.startswith("-") and _is_home_config(t):
+                return f"shell-config-tamper: tee writes to shell startup file {t}"
+    return None
+
+
+def _detect_persistence(cmd: str, tokens: list[str]) -> str | None:
+    """Flag installation of cron jobs / scheduled tasks. Read-only listings
+    (``crontab -l``, ``schtasks /query``) are not persistence and are ignored."""
+    low_args = [t.lower() for t in tokens[1:]]
+    if cmd == "crontab":
+        if "-l" in low_args:
+            return None
+        return "persistence: crontab installs scheduled jobs"
+    if cmd == "at":
+        if "-l" in low_args:
+            return None
+        return "persistence: 'at' schedules a deferred job"
+    if cmd == "schtasks":
+        if any(a in ("/create", "/change") for a in low_args):
+            return "persistence: schtasks creates a scheduled task"
+        return None
+    for t in tokens:
+        if t.lower() in (
+            "new-scheduledtask",
+            "register-scheduledtask",
+            "new-scheduledtasktrigger",
+        ):
+            return f"persistence: PowerShell {t} registers a scheduled task"
+    return None
+
+
 # --------------------------------------------------------------------------- #
 # Tool handlers
 # --------------------------------------------------------------------------- #
@@ -576,6 +820,10 @@ def _process_command(command: str, repo_root: Path, add, depth: int) -> None:
     r = _detect_pipe_to_shell(command)
     if r:
         add("pipe-to-shell", r)
+
+    r = _detect_download_execute(command, repo_root)
+    if r:
+        add("download-execute", r)
 
     for segment in _split_segments(command):
         tokens = _tokenize(segment)
@@ -612,6 +860,22 @@ def _process_command(command: str, repo_root: Path, add, depth: int) -> None:
         if r:
             add("uninspectable", r)
 
+        r = _detect_symlink_attack(cmd, tokens, repo_root)
+        if r:
+            add("symlink-attack", r)
+
+        r = _detect_perm_change(cmd, tokens, segment, repo_root)
+        if r:
+            add("perm-change", r)
+
+        r = _detect_shell_config_tamper(cmd, tokens, segment, repo_root)
+        if r:
+            add("shell-config-tamper", r)
+
+        r = _detect_persistence(cmd, tokens)
+        if r:
+            add("persistence", r)
+
         for tag, reason in _detect_redirect_writes(segment, repo_root):
             add(tag, reason)
 
@@ -633,6 +897,11 @@ def _classify_fileop(tool_name: str, tool_input: dict, repo_root: Path):
         reasons["read-secret"] = f"read-secret: {tool_name} targets secret file {raw}"
 
     resolved = _resolve_target(str(raw), repo_root)
+    if _basename_cmd(str(raw)) in _SHELL_CONFIG_FILES and not _is_inside(resolved, repo_root):
+        tags.append("shell-config-tamper")
+        reasons["shell-config-tamper"] = (
+            f"shell-config-tamper: {tool_name} writes to shell startup file {raw}"
+        )
     if not _is_inside(resolved, repo_root):
         tags.append("write-outside-repo")
         reasons["write-outside-repo"] = (

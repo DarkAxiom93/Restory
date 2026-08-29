@@ -1,14 +1,17 @@
 # 🐕‍🦺 restory
 
+> The seatbelt for AI coding agents.
+
 [![CI](https://github.com/DarkAxiom93/Restory/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkAxiom93/Restory/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/downloads/)
 
-**restory records everything your AI coding agent touches, blocks the dangerous stuff, and restores your tree with one command.** Local-only.
+**restory blocks the dangerous thing your AI coding agent tries — "reading your .env", rm -rf, exfiltrating to a pastebin — records everything it touches, and restores your whole tree with one command. Local-only.** 
 
 ![restory in action](docs/demo.gif)
 
 ```bash
-pip install restory && restory init
+pip install restory && restory init   # then run your agent as usual
+restory open                          # watch the live blast-radius timeline
 ```
 
 ---
@@ -131,3 +134,7 @@ machine. No accounts, no cloud, no telemetry.
 ## License
 
 MIT
+
+## Contributing
+
+Issues and PRs welcome. If you find a bypass the classifier misses, I especially want to hear about it — open an issue.

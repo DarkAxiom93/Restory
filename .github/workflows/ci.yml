@@ -47,8 +47,7 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -e .
-          pip install pytest
+          pip install -e ".[test]"
 
       # --basetemp points pytest at the runner's clean temp root. The default
       # tmp_path base can trip a Windows "WinError 5 (Access is denied)" when the

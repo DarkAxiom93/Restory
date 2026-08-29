@@ -64,3 +64,55 @@ def test_status_events_scoped_to_current_session(monkeypatch, tmp_path):
     assert data["armed"] is True
     assert data["total_events"] == 1
     assert data["blocked"] == 0
+
+
+# --------------------------------------------------------------------------- #
+# render()
+# --------------------------------------------------------------------------- #
+
+
+def _render(data) -> str:
+    from rich.console import Console
+
+    console = Console(record=True, width=120)
+    status.render(data, console=console)
+    return console.export_text()
+
+
+def test_render_not_armed_shows_hint():
+    data = {
+        "armed": False,
+        "session": None,
+        "total_events": 0,
+        "blocked": 0,
+        "shadow_exists": False,
+        "shadow_path": "/tmp/shadow",
+        "ui_built": False,
+        "ui_path": "/tmp/ui/index.html",
+    }
+    out = _render(data)
+    assert "not armed" in out
+    assert "session-start" in out
+    assert "missing" in out
+    assert "not built" in out
+
+
+def test_render_armed_shows_session_and_counts():
+    data = {
+        "armed": True,
+        "session": {"id": 7, "started_at": "2026-08-28T00:00:00+00:00",
+                    "anchor_commit": "deadbeef"},
+        "total_events": 3,
+        "blocked": 2,
+        "shadow_exists": True,
+        "shadow_path": "/tmp/shadow",
+        "ui_built": True,
+        "ui_path": "/tmp/ui/index.html",
+    }
+    out = _render(data)
+    assert "armed" in out
+    assert "session 7" in out
+    assert "3 recorded" in out
+    assert "2 blocked" in out
+    assert "present" in out
+    assert "built" in out

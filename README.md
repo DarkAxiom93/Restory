@@ -55,6 +55,37 @@ Being honest, because security tools that overpromise get torn apart:
 - It **won't catch every obfuscation.** It nails the common, high-value danger classes (exfil, mass-delete, secret reads, pipe-to-shell). Novel encodings can slip the classifier — that's what the restore net is for.
 - It **doesn't replace your judgment.** It surfaces what the agent tried and lets you reverse it. You're still the human in the loop.
 
+## FAQ
+
+**Why not just build this myself in a weekend?**
+You could build a basic version — but "basic" is the trap. What's here is a
+shell-effect classifier that covers command-substitution, pipe-to-shell,
+`find -delete`, redirect writes, and the unquoted-`~` expansion class; exact
+ground-truth undo via a shadow git repo; a live timeline; and multi-agent
+support. That's the difference between a weekend hack and something you'd
+actually trust on a real repo. `pip install restory` takes one second.
+
+**Isn't this just Claude Code's permission prompts?**
+No. Native prompts are per-tool yes/no fatigue, they miss the `~/` expansion
+and shell-builtin bypass classes (that's literally CVE-2026-22708), they show
+no network-egress view, and they produce no shareable record. Restory is
+effect-aware, records the whole session, and gives you one-command undo.
+
+**Why not just run the agent in a container?**
+Containers are great for isolation but too heavy for the everyday inner loop —
+especially on Windows. Restory is a hook, not a VM: near-zero overhead, no
+Docker, no WSL friction.
+
+**Can't the classifier be bypassed?**
+Yes. Argument inspection is theater against a determined attacker — we say so
+above. That's the whole point of the undo net: even if a novel obfuscation
+slips the classifier, `restory undo --session` resets your tree to the
+session baseline. Defense-in-depth + instant recovery, not a perfect filter.
+
+**Does it send my data anywhere?**
+No. Everything is local — a SQLite store and a shadow git repo on your
+machine. No accounts, no cloud, no telemetry.
+
 ## How it works
 
 `restory init` installs pre/post tool-use and session-start hooks for your agent (`PreToolUse` / `PostToolUse` on Claude Code, the equivalent `BeforeTool` / `AfterTool` on Gemini CLI). A thin adapter layer normalizes each agent's hook payload into one canonical shape and formats the decision each agent expects, so the classifier, store, and snapshot logic are shared unchanged across agents. Every tool call the agent makes is classified for blast radius; dangerous effects are blocked with a reason, everything is logged to a local SQLite store, and the working tree is snapshotted to a shadow git repo so `undo` is exact.

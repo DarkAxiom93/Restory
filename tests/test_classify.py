@@ -51,8 +51,12 @@ def test_npm_test_is_clean(tmp_path):
 
 
 def test_write_outside_repo_is_flagged(tmp_path):
+    # An absolute path that is a sibling of the repo root is unambiguously
+    # outside it on every OS (a hardcoded C:\... path would be relative, and
+    # thus "inside", on POSIX).
+    outside = tmp_path.parent / "evil.dll"
     result = classify(
-        {"tool_name": "Write", "tool_input": {"file_path": r"C:\Windows\System32\evil.dll"}},
+        {"tool_name": "Write", "tool_input": {"file_path": str(outside)}},
         repo_root=tmp_path,
     )
     assert "write-outside-repo" in result.tags

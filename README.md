@@ -1,5 +1,8 @@
 # 🐕‍🦺 restory
 
+[![CI](https://github.com/DarkAxiom93/Restory/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkAxiom93/Restory/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/downloads/)
+
 **restory records everything your AI coding agent touches, blocks the dangerous stuff, and restores your tree with one command.** Local-only.
 
 ![restory in action](docs/demo.gif)

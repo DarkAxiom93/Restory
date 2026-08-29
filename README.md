@@ -27,7 +27,7 @@ AI coding agents (Claude Code, Cursor, Copilot) run as *you* — with your files
 
 | Command | What it does |
 | --- | --- |
-| `restory init` | Install hooks into your agent — Claude Code by default (`.claude/settings.json`), or `--agent gemini` for Gemini CLI (`.gemini/settings.json`) |
+| `restory init` | Install hooks into your agent — Claude Code by default (`.claude/settings.json`), or `--agent gemini` for experimental Gemini CLI support (`.gemini/settings.json`) |
 | `restory open` | Open the live blast-radius timeline in your browser |
 | `restory monitor` | Live full-screen terminal dashboard — the TUI counterpart to `open` (`q` quit, `u` undo, `c` clear) |
 | `restory report` | Print a terminal summary of the session (add `--json` for machine output) |
@@ -78,7 +78,7 @@ _Session 1 · started 2026-08-29 07:19:04 UTC · anchor e14ae1c05738_
 ```bash
 pip install restory
 restory init                 # installs hooks for Claude Code (.claude/settings.json)
-restory init --agent gemini  # or for Gemini CLI (.gemini/settings.json)
+restory init --agent gemini  # experimental — Gemini CLI (.gemini/settings.json)
 restory open                 # opens the live timeline at http://127.0.0.1:8765
 ```
 
@@ -98,9 +98,7 @@ Being honest, because security tools that overpromise get torn apart:
 You could build a basic version — but "basic" is the trap. What's here is a
 shell-effect classifier that covers command-substitution, pipe-to-shell,
 `find -delete`, redirect writes, and the unquoted-`~` expansion class; exact
-ground-truth undo via a shadow git repo; a live timeline; and multi-agent
-support. That's the difference between a weekend hack and something you'd
-actually trust on a real repo. `pip install restory` takes one second.
+ground-truth undo via a shadow git repo; a live timeline; and an adapter layer for multiple agents. That's the difference between a weekend hack and something you'd actually trust on a real repo. `pip install restory` takes one second.
 
 **Isn't this just Claude Code's permission prompts?**
 No. Native prompts are per-tool yes/no fatigue, they miss the `~/` expansion

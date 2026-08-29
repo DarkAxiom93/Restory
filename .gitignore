@@ -26,3 +26,6 @@ test-env/
 *.whl
 
 .gemini/
+
+.pytest-tmp2/
+.pytest-tmp/

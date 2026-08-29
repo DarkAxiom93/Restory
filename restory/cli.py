@@ -292,6 +292,68 @@ def monitor() -> None:
 
 
 @app.command()
+def allow(
+    command: str = typer.Argument(
+        None,
+        help="The exact command to allow (add it, or with --remove, remove it).",
+    ),
+    list_: bool = typer.Option(
+        False, "--list", help="List the allowlisted commands and when they were added."
+    ),
+    remove: bool = typer.Option(
+        False, "--remove", help="Remove the given exact command from the allowlist."
+    ),
+) -> None:
+    """Manage the user command allowlist (a deliberate security carve-out).
+
+    Allowlisting tells restory to stop blocking a *specific, exact* command. The
+    allowlist lives in the user's own space (``~/.restory/allowlist.json``),
+    never in the repo, and matching is exact — there are no wildcards and no way
+    to suppress a whole danger category. An allowlisted command still shows up in
+    the timeline/report (tagged ``allowlisted-override``) when it runs.
+
+        restory allow "<exact command>"      # add
+        restory allow --list                 # show entries
+        restory allow --remove "<command>"   # remove
+    """
+    from . import allowlist
+
+    if list_:
+        entries = allowlist.load()
+        if not entries:
+            typer.echo("Allowlist is empty.")
+            return
+        typer.echo(f"Allowlisted commands ({len(entries)}) at {allowlist.get_allowlist_path()}:")
+        for entry in entries:
+            typer.echo(f"  [{entry.get('added_at', '?')}]  {entry['command']}")
+        return
+
+    if remove:
+        if not command:
+            typer.echo("Provide the exact command to remove: restory allow --remove \"<command>\".")
+            raise typer.Exit(2)
+        if allowlist.remove(command):
+            typer.echo(f"Removed from allowlist: {command}")
+        else:
+            typer.echo(f"Not in allowlist: {command}")
+            raise typer.Exit(1)
+        return
+
+    if not command:
+        typer.echo(
+            "Nothing to do. Use `restory allow \"<command>\"` to add, "
+            "`--list` to show, or `--remove \"<command>\"` to remove."
+        )
+        raise typer.Exit(2)
+
+    added, entry = allowlist.add(command)
+    if added:
+        typer.echo(f"Allowlisted: {entry['command']}")
+    else:
+        typer.echo(f"Already allowlisted: {entry['command']}")
+
+
+@app.command()
 def open(
     port: int = typer.Option(8765, help="Port to bind on 127.0.0.1."),
     no_browser: bool = typer.Option(False, "--no-browser", help="Do not open a browser."),

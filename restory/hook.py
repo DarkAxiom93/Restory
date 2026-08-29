@@ -19,10 +19,12 @@ import json
 import sys
 from pathlib import Path
 
-from . import store
+from . import allowlist, store
 from .adapters import CANONICAL_MUTATING, detect_adapter
 from .classify import classify
 from .config import find_repo_root
+
+ALLOWLIST_TAG = "allowlisted-override"
 
 
 def _read_payload(stream) -> dict:
@@ -41,6 +43,19 @@ def _read_payload(stream) -> dict:
     return payload if isinstance(payload, dict) else {}
 
 
+def _command_string(payload: dict) -> str:
+    """The exact command text the allowlist matches against.
+
+    The allowlist is command-string based, so it only applies to Bash tool
+    calls; file operations (Write/Edit) have no command to allowlist and always
+    fall through to normal classification.
+    """
+    if payload.get("tool_name") != "Bash":
+        return ""
+    tool_input = payload.get("tool_input") or {}
+    return str(tool_input.get("command", ""))
+
+
 def main() -> int:
     raw_payload = _read_payload(sys.stdin)
 
@@ -54,15 +69,34 @@ def main() -> int:
 
     result = classify(payload, repo_root=repo_root)
 
+    # User allowlist carve-out: AFTER classification, BEFORE blocking, check
+    # whether the user has explicitly, exactly allowlisted this command. If so,
+    # approve it but keep a full audit trail (danger stays False since it ran,
+    # the original tags are preserved, and an ``allowlisted-override`` tag is
+    # added so the timeline/report shows an allowlisted command was let through).
+    # The allowlist is read only from the user's own dir — never the repo — and
+    # only an exact-command match flips the decision; everything else is
+    # untouched and blocks exactly as before. Classification itself is never
+    # weakened: we override the *decision*, not the *analysis*.
+    tags = result.tags
+    danger = result.danger
+    reason = result.reason
+    if danger:
+        command = _command_string(payload)
+        if command and allowlist.is_allowlisted(command):
+            danger = False
+            tags = [*result.tags, ALLOWLIST_TAG]
+            reason = f"{ALLOWLIST_TAG}: user-approved, was [{result.reason}]"
+
     # Always record the event, even for safe calls. Never let a store failure
     # break the hook contract on stdout. The raw agent payload is kept verbatim
     # for provenance; the recorded tool_name is the canonical one.
     try:
         event_id = store.append_event(
             tool_name=payload.get("tool_name", ""),
-            tags=result.tags,
-            danger=result.danger,
-            reason=result.reason,
+            tags=tags,
+            danger=danger,
+            reason=reason,
             raw=raw_payload,
         )
     except Exception as exc:  # pragma: no cover - defensive
@@ -83,7 +117,7 @@ def main() -> int:
         except Exception as exc:  # pragma: no cover - defensive
             print(f"restory: snapshot failed: {exc}", file=sys.stderr)
 
-    decision = adapter.render_decision(result.danger, result.reason)
+    decision = adapter.render_decision(danger, reason)
 
     sys.stdout.write(json.dumps(decision))
     sys.stdout.write("\n")

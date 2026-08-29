@@ -14,6 +14,30 @@ from .config import find_repo_root
 app = typer.Typer(help="restory command-line interface.")
 
 
+def _version_callback(value: bool) -> None:
+    if value:
+        from importlib.metadata import PackageNotFoundError, version
+
+        try:
+            typer.echo(version("restory"))
+        except PackageNotFoundError:
+            typer.echo("unknown")
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        help="Show the installed restory version and exit.",
+        callback=_version_callback,
+        is_eager=True,
+    ),
+) -> None:
+    """restory command-line interface."""
+
+
 def _restory_command(subcommand: str) -> str:
     """Return a Windows-safe command string that invokes ``restory <subcommand>``.
 

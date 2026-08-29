@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "restory"
-version = "1.0.2"
+version = "1.0.3"
 description = "Restory CLI"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -21,3 +21,12 @@ restory = "restory.cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["restory"]
+
+# The exported Next.js UI (restory/ui/out) is a build artifact and gitignored,
+# so hatchling's default VCS-based file selection would leave it out of the
+# wheel. Force-include it explicitly so `restory open` works after pip install.
+[tool.hatch.build.targets.wheel.force-include]
+"restory/ui/out" = "restory/ui/out"
+
+[tool.hatch.build.targets.sdist.force-include]
+"restory/ui/out" = "restory/ui/out"

@@ -88,6 +88,19 @@ def main() -> int:
     sys.stdout.write(json.dumps(decision))
     sys.stdout.write("\n")
     sys.stdout.flush()
+
+    # Optional, opt-in desktop notification on a BLOCK decision only. Fired
+    # *after* the decision is flushed so it can never delay or corrupt the
+    # stdout contract, and fully wrapped so a notifier failure can never crash
+    # the hook. Approves are intentionally silent (would be spam).
+    if result.danger:
+        try:
+            from . import notify
+
+            notify.notify_block(result, payload)
+        except Exception as exc:  # pragma: no cover - defensive; must not break hook
+            print(f"restory: notification failed: {exc}", file=sys.stderr)
+
     return 0
 
 

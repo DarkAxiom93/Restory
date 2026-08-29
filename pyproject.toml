@@ -17,6 +17,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Optional native desktop notifications on BLOCK (opt-in via RESTORY_NOTIFY=1).
+# Platform-specific backends: windows-toasts gives real WinRT toasts on Windows
+# 10/11 (plyer only emits an unreliable legacy tray balloon there); plyer covers
+# macOS/Linux via osascript/notify-send with zero required transitive deps.
+# Install with `pip install "restory[notify]"`. If absent, notifications no-op.
+notify = [
+    'windows-toasts>=1.1.0; sys_platform == "win32"',
+    'plyer>=2.1; sys_platform != "win32"',
+]
 # Test/dev dependencies. Install with `pip install -e ".[test]"`.
 test = [
     "pytest",

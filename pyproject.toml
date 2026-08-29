@@ -16,6 +16,13 @@ dependencies = [
     "textual>=0.60",
 ]
 
+[project.optional-dependencies]
+# Test/dev dependencies. Install with `pip install -e ".[test]"`.
+test = [
+    "pytest",
+    "pytest-cov",
+]
+
 [project.scripts]
 restory = "restory.cli:app"
 

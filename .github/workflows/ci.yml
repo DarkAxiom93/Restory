@@ -47,8 +47,7 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -e .
-          pip install pytest
+          pip install -e ".[test]"
 
       # --basetemp points pytest at the runner's clean temp root. The default
       # tmp_path base can trip a Windows "WinError 5 (Access is denied)" when the
@@ -56,9 +55,17 @@ jobs:
       # outside the workspace avoids that. The textual TUI tests drive the app
       # through textual's headless Pilot harness (App.run_test), so they need no
       # real TTY and run unchanged in CI.
-      - name: Run tests
+      #
+      # Coverage is measured over the restory package: term for the log, xml for
+      # tooling (the badge job below consumes coverage.xml).
+      - name: Run tests with coverage
         shell: bash
-        run: pytest -v --basetemp="${{ runner.temp }}/pytest-restory"
+        run: >-
+          pytest -v
+          --cov=restory
+          --cov-report=xml
+          --cov-report=term
+          --basetemp="${{ runner.temp }}/pytest-restory"
 
   # Regression guard for the "UI not bundled in the wheel" bug: restory/ui/out is
   # a gitignored build artifact that pyproject force-includes into the wheel. If
@@ -147,3 +154,62 @@ jobs:
           assert index.is_file(), f"UI index.html not found in installed package at {index}"
           print(f"OK: installed UI resolves at {index}")
           PY
+
+  # Self-contained coverage badge: no third-party account or upload. Runs only on
+  # pushes to main (after the matrix passes), regenerates an SVG from coverage.xml
+  # with genbadge (pure Python), and commits it back to .github/badges/ only when
+  # the percentage actually changes. The README points at the committed SVG.
+  coverage-badge:
+    name: coverage badge
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Same rationale as the test job: the exported UI is a gitignored artifact,
+      # so drop in a placeholder to satisfy the wheel's force-include and let
+      # `pip install -e .` succeed without a JS toolchain.
+      - name: Create UI placeholder (skip UI build)
+        shell: bash
+        run: |
+          mkdir -p restory/ui/out
+          echo '<!doctype html><title>restory UI (CI test stub)</title>' > restory/ui/out/index.html
+
+      - name: Install package and coverage tooling
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+          pip install "genbadge[coverage]"
+
+      - name: Generate coverage.xml
+        shell: bash
+        run: pytest --cov=restory --cov-report=xml --basetemp="${{ runner.temp }}/pytest-restory"
+
+      - name: Render coverage badge
+        shell: bash
+        run: |
+          mkdir -p .github/badges
+          genbadge coverage -i coverage.xml -o .github/badges/coverage.svg
+
+      - name: Commit badge if changed
+        shell: bash
+        run: |
+          if git diff --quiet -- .github/badges/coverage.svg; then
+            echo "Coverage badge unchanged; nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/badges/coverage.svg
+          git commit -m "chore(ci): update coverage badge [skip ci]"
+          git push

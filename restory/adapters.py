@@ -24,6 +24,7 @@ stay untouched.
 from __future__ import annotations
 
 import json
+import shlex
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -114,6 +115,59 @@ def _install_settings_json(
     rendered = json.dumps(settings, indent=2)
     settings_path.write_text(rendered + "\n", encoding="utf-8")
     return InstallResult(settings_path, backup, rendered)
+
+
+# --------------------------------------------------------------------------- #
+# Cursor hooks.json writer (Cursor's own, flatter shape)
+# --------------------------------------------------------------------------- #
+
+
+def _install_cursor_hooks(
+    hooks_path: Path,
+    *,
+    hook_command: str,
+    session_command: str,
+    matcher: str,
+) -> InstallResult:
+    """Merge restory hook entries into a Cursor ``.cursor/hooks.json``.
+
+    Cursor's schema is ``{"version": 1, "hooks": {<event>: [{"command", ...}]}}``
+    — a flat list of ``{"command", "matcher", "failClosed", ...}`` entries per
+    event, *not* the ``{"matcher", "hooks": [{"type", "command"}]}`` nesting that
+    Claude/Gemini use, so this needs its own writer rather than
+    :func:`_install_settings_json`.
+
+    Idempotent: an entry is appended only if the same ``command`` is not already
+    present for that event. ``preToolUse`` is the guard (``failClosed: true`` so a
+    hook crash/timeout blocks rather than fails open — the safe default for a
+    security tool); ``postToolUse`` drives snapshotting; ``sessionStart`` anchors
+    the undo baseline.
+    """
+    hooks_path.parent.mkdir(parents=True, exist_ok=True)
+    settings, backup = _load_settings(hooks_path)
+
+    settings.setdefault("version", 1)
+    hooks = settings.setdefault("hooks", {})
+
+    def _ensure(event: str, command: str, *, matcher: str | None = None,
+                fail_closed: bool = False) -> None:
+        entries = hooks.setdefault(event, [])
+        if any(isinstance(e, dict) and e.get("command") == command for e in entries):
+            return
+        entry: dict = {"command": command}
+        if matcher is not None:
+            entry["matcher"] = matcher
+        if fail_closed:
+            entry["failClosed"] = True
+        entries.append(entry)
+
+    _ensure("preToolUse", hook_command, matcher=matcher, fail_closed=True)
+    _ensure("postToolUse", hook_command, matcher=matcher)
+    _ensure("sessionStart", session_command)
+
+    rendered = json.dumps(settings, indent=2)
+    hooks_path.write_text(rendered + "\n", encoding="utf-8")
+    return InstallResult(hooks_path, backup, rendered)
 
 
 # --------------------------------------------------------------------------- #
@@ -261,11 +315,110 @@ class GeminiAdapter(Adapter):
 
 
 # --------------------------------------------------------------------------- #
+# Cursor (experimental)
+# --------------------------------------------------------------------------- #
+
+
+class CursorAdapter(Adapter):
+    """Cursor (``.cursor/hooks.json`` — ``preToolUse`` / ``postToolUse``).
+
+    **Experimental.** The contract is confirmed against Cursor's hooks docs
+    (cursor.com/docs/hooks), but Cursor notes ``preToolUse`` enforcement is still
+    maturing (``ask`` is accepted-but-not-enforced today; ``deny`` blocks), so we
+    ship it marked experimental like the Gemini adapter.
+
+    Cursor's generic ``preToolUse`` hook fires for all tools and carries
+    ``tool_name`` / ``tool_input`` (the shell command lives at
+    ``tool_input.command``, unlike the ``beforeShellExecution`` event where it is
+    top-level). Normalization renames Cursor's tool/event vocabularies onto
+    restory's canonical set. The ``Delete`` tool has no shell command, so it is
+    re-expressed as an ``rm <path>`` command: this routes a real file deletion
+    through ``classify``'s existing delete detector — a delete of the repo root,
+    home, the filesystem root, or a path outside the repo is flagged and blocked,
+    while an ordinary in-repo file delete is allowed and captured by the snapshot
+    /undo net (matching how restory already treats ``rm`` in a shell payload).
+
+    On stdout Cursor wants ``{"permission": "deny", "agent_message": ...}`` to
+    block (snake_case, confirmed) and ``{"permission": "allow"}`` to proceed.
+    """
+
+    key = "cursor"
+    label = "Cursor (experimental)"
+
+    # preToolUse tools restory guards. Read/Grep/Task are irrelevant (classify
+    # treats them as safe) and are excluded from the installed matcher.
+    _MATCHER = "Shell|Write|Delete"
+
+    # Cursor preToolUse tool name -> canonical restory tool name. ``Delete`` maps
+    # to Bash because normalize() rewrites it as an ``rm`` command.
+    _TOOL_NAMES = {
+        "Shell": "Bash",
+        "Write": "Write",
+        "Delete": "Bash",
+    }
+    # Cursor hook event -> canonical restory event.
+    _EVENTS = {
+        "preToolUse": "PreToolUse",
+        "postToolUse": "PostToolUse",
+        "postToolUseFailure": "PostToolUse",
+    }
+    _CURSOR_EVENTS = frozenset(_EVENTS)
+
+    @classmethod
+    def matches(cls, payload: dict) -> bool:
+        if payload.get("hook_event_name") in cls._CURSOR_EVENTS:
+            return True
+        # Cursor's other tool names (Read/Write/Grep/Task) collide with Claude's,
+        # so only "Shell" (Claude uses "Bash") is a safe event-free signal.
+        return payload.get("tool_name") == "Shell"
+
+    def normalize(self, payload: dict) -> dict:
+        raw_tool = payload.get("tool_name", "")
+        raw_event = payload.get("hook_event_name", "")
+        tool_input = payload.get("tool_input") or {}
+
+        if raw_tool == "Delete":
+            # Re-express the deletion as an `rm <path>` command so classify()'s
+            # delete detector runs. Non-recursive on purpose: dangerous targets
+            # (repo root / home / fs root / outside repo) are flagged, ordinary
+            # in-repo deletes stay allowed and are caught by the undo net.
+            target = tool_input.get("file_path") or tool_input.get("path") or "."
+            tool_input = {"command": f"rm {shlex.quote(str(target))}"}
+
+        return {
+            # Unknown tools pass through untranslated; classify() returns "safe"
+            # for anything outside the canonical set.
+            "tool_name": self._TOOL_NAMES.get(raw_tool, raw_tool),
+            "tool_input": tool_input,
+            "cwd": payload.get("cwd"),
+            "hook_event_name": self._EVENTS.get(raw_event, raw_event),
+        }
+
+    def render_decision(self, danger: bool, reason: str) -> dict:
+        # Confirmed snake_case contract (preToolUse output on cursor.com/docs/
+        # hooks). hook.py exits 0; Cursor also treats exit code 2 as an
+        # equivalent deny, our documented fallback if stdout is unavailable.
+        if danger:
+            return {"permission": "deny", "agent_message": reason}
+        return {"permission": "allow"}
+
+    def install(
+        self, repo_root: Path, hook_command: str, session_command: str
+    ) -> InstallResult:
+        return _install_cursor_hooks(
+            repo_root / ".cursor" / "hooks.json",
+            hook_command=hook_command,
+            session_command=session_command,
+            matcher=self._MATCHER,
+        )
+
+
+# --------------------------------------------------------------------------- #
 # Registry + lookup
 # --------------------------------------------------------------------------- #
 
 _ADAPTERS: dict[str, Adapter] = {
-    a.key: a for a in (ClaudeAdapter(), GeminiAdapter())
+    a.key: a for a in (ClaudeAdapter(), GeminiAdapter(), CursorAdapter())
 }
 
 

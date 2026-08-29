@@ -60,11 +60,12 @@ def init(
         ),
     ),
 ) -> None:
-    """Install restory SessionStart + pre/post tool-use hooks for a coding agent.
+    """Install restory session + pre/post tool-use hooks for a coding agent.
 
     Defaults to Claude Code (``.claude/settings.json``); ``--agent gemini``
-    writes ``.gemini/settings.json`` instead. The same ``restory hook``
-    entrypoint serves every agent — it detects the payload shape at run time.
+    writes ``.gemini/settings.json`` and ``--agent cursor`` (experimental)
+    writes ``.cursor/hooks.json`` instead. The same ``restory hook`` entrypoint
+    serves every agent — it detects the payload shape at run time.
     """
     try:
         adapter = adapters.get_adapter(agent)

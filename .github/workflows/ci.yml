@@ -59,3 +59,91 @@ jobs:
       - name: Run tests
         shell: bash
         run: pytest -v --basetemp="${{ runner.temp }}/pytest-restory"
+
+  # Regression guard for the "UI not bundled in the wheel" bug: restory/ui/out is
+  # a gitignored build artifact that pyproject force-includes into the wheel. If
+  # the UI is never built (as in the test matrix, which stubs it), or the
+  # force-include is removed, the wheel ships without the exported UI and
+  # `restory open` breaks for real pip users. This job builds the UI for real and
+  # asserts the packaged wheel actually contains restory/ui/out/index.html.
+  packaging:
+    name: packaging (wheel contains built UI)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: restory/ui/package-lock.json
+
+      # Build the exported Next.js UI for real so restory/ui/out is populated,
+      # exactly as it would be for a release build.
+      - name: Build UI
+        working-directory: restory/ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Verify UI build output exists
+        run: test -f restory/ui/out/index.html
+
+      - name: Build wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --wheel
+
+      # Inspect the freshly built .whl as a zip and fail if the exported UI's
+      # index.html is not inside it. This is the exact check we ran manually when
+      # the bug first surfaced.
+      - name: Assert wheel contains built UI
+        shell: bash
+        run: |
+          python - <<'PY'
+          import glob
+          import sys
+          import zipfile
+
+          wheels = glob.glob("dist/*.whl")
+          if not wheels:
+              sys.exit("No wheel found in dist/")
+          wheel = wheels[0]
+
+          target = "restory/ui/out/index.html"
+          with zipfile.ZipFile(wheel) as zf:
+              names = zf.namelist()
+
+          if target in names:
+              print(f"OK: {target} is present in {wheel}")
+          else:
+              print(f"FAIL: {target} is MISSING from {wheel}", file=sys.stderr)
+              print("Wheel contents under restory/ui/:", file=sys.stderr)
+              for name in names:
+                  if name.startswith("restory/ui/"):
+                      print(f"  {name}", file=sys.stderr)
+              sys.exit(1)
+          PY
+
+      # Install the built wheel into a clean venv and confirm the CLI runs and the
+      # UI file resolves from the *installed* package (not the source tree).
+      - name: Install wheel in fresh venv and smoke-test
+        shell: bash
+        run: |
+          python -m venv /tmp/restory-venv
+          /tmp/restory-venv/bin/pip install --upgrade pip
+          /tmp/restory-venv/bin/pip install dist/*.whl
+          /tmp/restory-venv/bin/restory --version
+          /tmp/restory-venv/bin/python - <<'PY'
+          from restory.server import UI_DIR
+          index = UI_DIR / "index.html"
+          assert index.is_file(), f"UI index.html not found in installed package at {index}"
+          print(f"OK: installed UI resolves at {index}")
+          PY

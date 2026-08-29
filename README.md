@@ -5,7 +5,7 @@
 [![CI](https://github.com/DarkAxiom93/Restory/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkAxiom93/Restory/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/downloads/)
 
-**restory blocks the dangerous thing your AI coding agent tries — reading your '.env', 'rm -rf', exfiltrating to a pastebin — records everything it touches, and restores your whole tree with one command. Local-only.** 
+**restory blocks the dangerous thing your AI coding agent tries — reading your `.env`, `rm -rf`, exfiltrating to a pastebin — records everything it touches, and restores your whole tree with one command. Local-only.** 
 
 ![restory in action](docs/demo.gif)
 

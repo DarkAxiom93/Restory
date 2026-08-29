@@ -361,6 +361,64 @@ def test_search_composes_with_blocked_only(monkeypatch, tmp_path):
     asyncio.run(scenario())
 
 
+def test_help_overlay_opens_and_closes(monkeypatch, tmp_path):
+    _isolate(monkeypatch, tmp_path)
+    _seed_mixed_session(store)
+
+    async def scenario() -> None:
+        app = tui.RestoryMonitorApp(repo_root=tmp_path / "repo")
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert not isinstance(app.screen, tui.HelpScreen)
+
+            # '?' opens the help overlay.
+            await pilot.press("?")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.HelpScreen)
+
+            # It lists shortcuts, sourced from the app's BINDINGS.
+            body = app.screen.query_one("#help-body").render()
+            text = body.plain if hasattr(body, "plain") else str(body)
+            assert "Quit" in text
+            assert "Blocked only" in text
+            assert "Search" in text
+
+            # 'esc' closes it, returning to the monitor.
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, tui.HelpScreen)
+
+            # '?' can also close it (toggle-ish: open then close with '?').
+            await pilot.press("?")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.HelpScreen)
+            await pilot.press("?")
+            await pilot.pause()
+            assert not isinstance(app.screen, tui.HelpScreen)
+
+    asyncio.run(scenario())
+
+
+def test_help_covers_every_app_binding(monkeypatch, tmp_path):
+    _isolate(monkeypatch, tmp_path)
+    _seed_mixed_session(store)
+
+    async def scenario() -> None:
+        app = tui.RestoryMonitorApp(repo_root=tmp_path / "repo")
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("?")
+            await pilot.pause()
+            body = app.screen.query_one("#help-body").render()
+            text = body.plain if hasattr(body, "plain") else str(body)
+            # Every app binding's description appears in the help overlay, so the
+            # footer and the help screen cannot drift out of sync.
+            for binding in tui.RestoryMonitorApp.BINDINGS:
+                assert binding.description in text
+
+    asyncio.run(scenario())
+
+
 def test_monitor_app_mounts_with_no_events(monkeypatch, tmp_path):
     _isolate(monkeypatch, tmp_path)
 

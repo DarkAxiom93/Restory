@@ -281,10 +281,15 @@ def status() -> None:
 def monitor() -> None:
     """Open a live, full-screen terminal dashboard of session events.
 
-    The terminal-native counterpart to ``restory open``: polls the SQLite store
-    ~once a second and shows events newest-first, blocked ones highlighted in
-    red. Keys: ``q`` quit, ``u`` undo the session (with confirmation), ``c``
-    clear the view. Read-only except for the explicit undo action.
+    \b
+    Keyboard shortcuts (press ? inside for the full list):
+      b        filter to blocked events only
+      t        cycle tag filter
+      /        search commands and reasons
+      s        toggle sort order
+      enter    expand the selected event
+      u        undo the session (asks to confirm)
+      q        quit
     """
     from . import tui
 

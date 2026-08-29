@@ -144,6 +144,69 @@ class ConfirmScreen(ModalScreen[bool]):
         self.dismiss(False)
 
 
+# Friendly labels for key names that would otherwise read as Textual internals.
+_KEY_LABELS = {
+    "slash": "/",
+    "question_mark": "?",
+    "escape": "esc",
+    "up": "↑",
+    "down": "↓",
+    "enter": "enter",
+}
+
+
+def _key_label(key: str) -> str:
+    """Human-friendly label for a Textual key name (e.g. ``slash`` -> ``/``)."""
+    return _KEY_LABELS.get(key, key)
+
+
+class HelpScreen(ModalScreen[None]):
+    """Overlay listing every keyboard shortcut, grouped by purpose.
+
+    The content is generated from the app's ``BINDINGS`` and ``HELP_GROUPS`` so
+    it stays in lock-step with the footer — descriptions live in exactly one
+    place. Closes on ``?`` or ``esc``.
+    """
+
+    BINDINGS = [
+        Binding("question_mark", "close", "Close", show=False),
+        Binding("escape", "close", "Close", show=False),
+        Binding("q", "close", "Close", show=False),
+    ]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="help-box"):
+            yield Static("Keyboard shortcuts", id="help-title")
+            yield Static(self._build_body(), id="help-body")
+            yield Static("? or esc to close", id="help-hint")
+
+    def _build_body(self) -> Text:
+        app = self.app
+        # Collect the keys bound to each action, preserving BINDINGS order.
+        keys_for: dict[str, list[str]] = {}
+        desc_for: dict[str, str] = {}
+        for binding in app.BINDINGS:
+            keys_for.setdefault(binding.action, []).append(_key_label(binding.key))
+            desc_for.setdefault(binding.action, binding.description)
+
+        body = Text()
+        for gi, (group, actions) in enumerate(app.HELP_GROUPS):
+            if gi:
+                body.append("\n")
+            body.append(f"{group}\n", style="bold cyan")
+            for action in actions:
+                if action not in desc_for:
+                    continue
+                keys = " / ".join(keys_for.get(action, []))
+                body.append("  ")
+                body.append(f"{keys:<12}", style="bold")
+                body.append(desc_for[action] + "\n")
+        return body
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+
 class RestoryMonitorApp(App[None]):
     """Live full-screen dashboard of restory session events."""
 
@@ -197,6 +260,27 @@ class RestoryMonitorApp(App[None]):
     #detail.-hidden {
         display: none;
     }
+    #help-box {
+        width: 64;
+        height: auto;
+        padding: 1 2;
+        border: round $primary;
+        background: $surface;
+    }
+    #help-title {
+        height: auto;
+        text-style: bold;
+        color: $text;
+        margin-bottom: 1;
+    }
+    #help-body {
+        height: auto;
+    }
+    #help-hint {
+        height: auto;
+        margin-top: 1;
+        color: $text-muted;
+    }
     #confirm-box {
         width: 60;
         height: auto;
@@ -224,12 +308,28 @@ class RestoryMonitorApp(App[None]):
         Binding("b", "toggle_blocked", "Blocked only"),
         Binding("t", "cycle_tag", "Tag filter"),
         Binding("s", "toggle_sort", "Sort"),
-        Binding("enter", "toggle_detail", "Details"),
+        Binding("enter", "toggle_detail", "Expand details"),
         Binding("slash", "open_search", "Search"),
+        Binding("question_mark", "help", "Help"),
         Binding("escape", "close_search", "Clear search", show=False),
-        Binding("j", "row_down", "Down", show=False),
-        Binding("k", "row_up", "Up", show=False),
+        Binding("down", "row_down", "Move down", show=False),
+        Binding("up", "row_up", "Move up", show=False),
+        Binding("j", "row_down", "Move down", show=False),
+        Binding("k", "row_up", "Move up", show=False),
     ]
+
+    # Groups for the ``?`` help overlay. Keyed by action so the descriptions are
+    # sourced from BINDINGS above (single source of truth — the footer and the
+    # help screen can never drift). Actions are listed once even when several
+    # keys map to them; every key for an action is shown together.
+    HELP_GROUPS = (
+        ("Navigation", ("row_up", "row_down", "toggle_detail")),
+        ("Filtering & search", (
+            "toggle_blocked", "cycle_tag", "toggle_sort",
+            "open_search", "close_search",
+        )),
+        ("Actions", ("undo", "clear", "help", "quit")),
+    )
 
     def __init__(
         self,
@@ -466,6 +566,10 @@ class RestoryMonitorApp(App[None]):
         self._sort_oldest_first = not self._sort_oldest_first
         self._last_signature = None
         self._refresh()
+
+    def action_help(self) -> None:
+        """Open the keyboard-shortcut overlay (``?``)."""
+        self.push_screen(HelpScreen())
 
     def action_open_search(self) -> None:
         """Reveal the search box and focus it (filters as you type)."""

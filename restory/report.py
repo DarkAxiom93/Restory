@@ -111,7 +111,11 @@ def render(data: dict, console=None) -> None:
     tags = data["tags"]
     if tags:
         tag_table = Table(title="Blast-radius tags", title_style="bold", header_style="bold")
-        tag_table.add_column("Tag", style="magenta")
+        # No color style: the tag name must render in the terminal's default
+        # foreground so it stays readable on every console. A colored style
+        # (e.g. magenta) can collapse into the background on some Windows
+        # palettes, hiding the tag name while the cyan count stays visible.
+        tag_table.add_column("Tag")
         tag_table.add_column("Count", justify="right", style="cyan")
         for tag, count in tags.items():
             tag_table.add_row(tag, str(count))

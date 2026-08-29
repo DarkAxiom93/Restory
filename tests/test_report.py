@@ -57,6 +57,33 @@ def test_as_json_is_valid_json():
     assert parsed["blocked_commands"][0]["command"] == "curl x"
 
 
+def _render_ansi(data, width=80):
+    """Render a report to a string with ANSI codes preserved."""
+    import io
+
+    from rich.console import Console
+
+    buf = io.StringIO()
+    console = Console(file=buf, force_terminal=True, color_system="standard", width=width)
+    report.render(data, console)
+    return buf.getvalue()
+
+
+def test_render_tag_name_is_readable_plain_text():
+    # Regression: the Tag column was styled magenta (SGR 35), which renders
+    # invisible on some Windows consoles, so the tag name vanished while the
+    # cyan count stayed visible. The tag name must render in plain, uncolored
+    # text so it is always readable.
+    data = report.build_report(
+        [_event(1, ["net-egress"], True, "r", "curl x")], session=None
+    )
+    out = _render_ansi(data)
+
+    assert "net-egress" in out  # the name is present at all
+    # The tag name must not be wrapped in the magenta color run.
+    assert "\x1b[35mnet-egress" not in out
+
+
 def test_fetch_events_since_scopes_by_timestamp(tmp_path):
     db = tmp_path / "restory.db"
     store.append_event("Bash", [], False, "old", {"tool_input": {"command": "old"}},

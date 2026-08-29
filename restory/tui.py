@@ -22,7 +22,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, DataTable, Footer, Static
+from textual.widgets import Button, DataTable, Footer, Input, Static
 
 from . import store
 
@@ -80,24 +80,36 @@ def _detail_of(ev: dict) -> str:
     )
 
 
+def _matches_search(ev: dict, needle: str) -> bool:
+    """True when ``needle`` (already lowercased) is in the command or reason."""
+    haystacks = (_detail_of(ev), ev.get("reason") or "")
+    return any(needle in h.lower() for h in haystacks)
+
+
 def apply_view(
     events: list[dict],
     *,
     blocked_only: bool = False,
     tag: str | None = None,
+    search: str = "",
     oldest_first: bool = False,
 ) -> list[dict]:
     """Filter and sort events for display (pure, read-only).
 
-    ``events`` arrive newest-first. ``blocked_only`` and ``tag`` compose (both
-    must match), and ``oldest_first`` reverses the final order so filtering and
-    sorting combine cleanly. Never mutates ``events`` or its members.
+    ``events`` arrive newest-first. ``blocked_only``, ``tag`` and ``search`` all
+    compose (every active one must match), and ``oldest_first`` reverses the
+    final order so filtering and sorting combine cleanly. ``search`` is matched
+    case-insensitively against each event's command and reason. Never mutates
+    ``events`` or its members.
     """
     out = list(events)
     if blocked_only:
         out = [ev for ev in out if ev.get("danger")]
     if tag is not None:
         out = [ev for ev in out if tag in (ev.get("tags") or [])]
+    needle = search.strip().lower()
+    if needle:
+        out = [ev for ev in out if _matches_search(ev, needle)]
     if oldest_first:
         out = list(reversed(out))
     return out
@@ -138,22 +150,48 @@ class RestoryMonitorApp(App[None]):
     TITLE = "restory monitor"
 
     CSS = """
+    Screen {
+        background: $surface;
+    }
     #statusbar {
         dock: top;
         height: 1;
         padding: 0 1;
-        background: $panel;
+        background: $primary;
         color: $text;
+        text-style: bold;
+    }
+    #search {
+        dock: top;
+        height: 3;
+        margin: 0 1;
+        border: round $warning;
+        background: $panel;
+    }
+    #search.-hidden {
+        display: none;
     }
     DataTable {
         height: 1fr;
+        margin: 1 1 0 1;
+        border: round $primary;
+        background: $surface;
+    }
+    DataTable > .datatable--header {
+        text-style: bold;
+        color: $text;
+        background: $panel;
+    }
+    DataTable > .datatable--cursor {
+        background: $primary 40%;
     }
     #detail {
         dock: bottom;
         height: auto;
         max-height: 50%;
+        margin: 0 1 0 1;
         padding: 0 1;
-        border-top: heavy $accent;
+        border: round $primary;
         background: $panel;
     }
     #detail.-hidden {
@@ -187,6 +225,8 @@ class RestoryMonitorApp(App[None]):
         Binding("t", "cycle_tag", "Tag filter"),
         Binding("s", "toggle_sort", "Sort"),
         Binding("enter", "toggle_detail", "Details"),
+        Binding("slash", "open_search", "Search"),
+        Binding("escape", "close_search", "Clear search", show=False),
         Binding("j", "row_down", "Down", show=False),
         Binding("k", "row_up", "Up", show=False),
     ]
@@ -205,6 +245,7 @@ class RestoryMonitorApp(App[None]):
         # Read-only view state. None of these ever touch the DB.
         self._blocked_only = False
         self._tag_filter: str | None = None
+        self._search = ""
         self._sort_oldest_first = False
         # id of the event whose full details are expanded, or None.
         self._expanded_id: int | None = None
@@ -218,10 +259,17 @@ class RestoryMonitorApp(App[None]):
 
     def compose(self) -> ComposeResult:
         yield Static("", id="statusbar")
+        search = Input(placeholder="Search command or reason…", id="search")
+        search.border_title = "/ search"
+        search.add_class("-hidden")
+        yield search
         table = DataTable(id="events", zebra_stripes=True, cursor_type="row")
+        table.border_title = "Session events"
         table.add_columns("#", "Time", "Tool", "Detail", "Status")
         yield table
-        yield Static("", id="detail", classes="-hidden")
+        detail = Static("", id="detail", classes="-hidden")
+        detail.border_title = "Event details"
+        yield detail
         yield Footer()
 
     def on_mount(self) -> None:
@@ -254,6 +302,7 @@ class RestoryMonitorApp(App[None]):
             self._events,
             blocked_only=self._blocked_only,
             tag=self._tag_filter,
+            search=self._search,
             oldest_first=self._sort_oldest_first,
         )
         signature = (
@@ -263,6 +312,7 @@ class RestoryMonitorApp(App[None]):
             self._clear_before_id,
             self._blocked_only,
             self._tag_filter,
+            self._search,
             self._sort_oldest_first,
             self._expanded_id,
             tuple(ev.get("id") for ev in view),
@@ -271,32 +321,53 @@ class RestoryMonitorApp(App[None]):
             return
         self._last_signature = signature
 
-        self._render_statusbar(data)
+        self._render_statusbar(data, shown=len(view))
         self._render_table(view)
         self._render_detail()
 
-    def _render_statusbar(self, data: dict) -> None:
+    def _render_statusbar(self, data: dict, *, shown: int) -> None:
+        # Colours are limited to red/green/yellow/cyan/white/dim so nothing
+        # vanishes when a legacy Windows console downsamples to its 16-colour
+        # palette (the magenta-on-black bug we hit in the report command).
+        sep = Text("  │  ", style="dim")
         bar = Text()
-        bar.append(f"{data['total']} events", style="bold")
-        bar.append(" · ")
-        blocked = data["blocked"]
-        bar.append(f"{blocked} blocked", style="bold red" if blocked else "dim")
-        bar.append("     ")
+
+        # Armed state leads, like a status LED on a console.
         if data["armed"]:
             session = data["session"]
-            bar.append("armed", style="bold green")
-            bar.append(f"  session {session['id']}", style="dim")
+            bar.append(" ARMED ", style="bold white on green")
+            bar.append(f" session {session['id']}", style="dim")
         else:
-            bar.append("not armed", style="bold yellow")
+            bar.append(" DISARMED ", style="bold white on yellow")
+            bar.append(" not armed", style="dim")
+        bar.append(sep)
 
-        # Active view filters/sort (read-only; none of these touch the DB).
+        # Counts.
+        bar.append(f"{data['total']} events", style="bold")
+        blocked = data["blocked"]
+        bar.append("  ")
+        if blocked:
+            bar.append(f"{BLOCKED_MARKER} {blocked} blocked", style="bold red")
+        else:
+            bar.append("0 blocked", style="dim")
+
+        # Active view filters/search/sort (read-only; none touch the DB).
+        filters: list[Text] = []
         if self._blocked_only:
-            bar.append(" · ")
-            bar.append("blocked only", style="bold yellow")
+            filters.append(Text("blocked only", style="bold yellow"))
         if self._tag_filter is not None:
-            bar.append(" · ")
-            bar.append(f"tag:{self._tag_filter}", style="bold cyan")
-        bar.append(" · ")
+            filters.append(Text(f"tag:{self._tag_filter}", style="bold cyan"))
+        if self._search:
+            filters.append(Text(f'search:"{self._search}"', style="bold cyan"))
+        if filters:
+            bar.append(sep)
+            for i, seg in enumerate(filters):
+                if i:
+                    bar.append(", ", style="dim")
+                bar.append_text(seg)
+            bar.append(f"  ({shown} shown)", style="dim")
+
+        bar.append(sep)
         bar.append(
             "oldest first" if self._sort_oldest_first else "newest first",
             style="dim",
@@ -393,6 +464,35 @@ class RestoryMonitorApp(App[None]):
     def action_toggle_sort(self) -> None:
         """Toggle newest-first (default) vs oldest-first ordering (view-only)."""
         self._sort_oldest_first = not self._sort_oldest_first
+        self._last_signature = None
+        self._refresh()
+
+    def action_open_search(self) -> None:
+        """Reveal the search box and focus it (filters as you type)."""
+        box = self.query_one("#search", Input)
+        box.remove_class("-hidden")
+        box.focus()
+
+    def action_close_search(self) -> None:
+        """Clear the search term, hide the box, and return focus to the table.
+
+        Bound to ``escape``; a no-op when search is not active so it does not
+        interfere with the rest of the UI.
+        """
+        box = self.query_one("#search", Input)
+        if box.has_class("-hidden") and not self._search:
+            return
+        box.value = ""
+        box.add_class("-hidden")
+        self._search = ""
+        self.query_one("#events", DataTable).focus()
+        self._last_signature = None
+        self._refresh()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id != "search":
+            return
+        self._search = event.value
         self._last_signature = None
         self._refresh()
 

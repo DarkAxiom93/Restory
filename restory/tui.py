@@ -80,6 +80,29 @@ def _detail_of(ev: dict) -> str:
     )
 
 
+def apply_view(
+    events: list[dict],
+    *,
+    blocked_only: bool = False,
+    tag: str | None = None,
+    oldest_first: bool = False,
+) -> list[dict]:
+    """Filter and sort events for display (pure, read-only).
+
+    ``events`` arrive newest-first. ``blocked_only`` and ``tag`` compose (both
+    must match), and ``oldest_first`` reverses the final order so filtering and
+    sorting combine cleanly. Never mutates ``events`` or its members.
+    """
+    out = list(events)
+    if blocked_only:
+        out = [ev for ev in out if ev.get("danger")]
+    if tag is not None:
+        out = [ev for ev in out if tag in (ev.get("tags") or [])]
+    if oldest_first:
+        out = list(reversed(out))
+    return out
+
+
 class ConfirmScreen(ModalScreen[bool]):
     """Modal yes/no confirmation. Dismisses with ``True`` when confirmed."""
 
@@ -125,6 +148,17 @@ class RestoryMonitorApp(App[None]):
     DataTable {
         height: 1fr;
     }
+    #detail {
+        dock: bottom;
+        height: auto;
+        max-height: 50%;
+        padding: 0 1;
+        border-top: heavy $accent;
+        background: $panel;
+    }
+    #detail.-hidden {
+        display: none;
+    }
     #confirm-box {
         width: 60;
         height: auto;
@@ -149,6 +183,12 @@ class RestoryMonitorApp(App[None]):
         Binding("q", "quit", "Quit"),
         Binding("u", "undo", "Undo session"),
         Binding("c", "clear", "Clear view"),
+        Binding("b", "toggle_blocked", "Blocked only"),
+        Binding("t", "cycle_tag", "Tag filter"),
+        Binding("s", "toggle_sort", "Sort"),
+        Binding("enter", "toggle_detail", "Details"),
+        Binding("j", "row_down", "Down", show=False),
+        Binding("k", "row_up", "Up", show=False),
     ]
 
     def __init__(
@@ -162,6 +202,17 @@ class RestoryMonitorApp(App[None]):
         # Events with id <= this threshold are hidden by "clear view". The DB is
         # never touched; clearing is purely visual and new events still appear.
         self._clear_before_id = 0
+        # Read-only view state. None of these ever touch the DB.
+        self._blocked_only = False
+        self._tag_filter: str | None = None
+        self._sort_oldest_first = False
+        # id of the event whose full details are expanded, or None.
+        self._expanded_id: int | None = None
+        # Clear-filtered events from the last gather, in newest-first order.
+        # Used by the tag-cycle action to know which tags are present.
+        self._events: list[dict] = []
+        # Events in current display order, so a highlighted row maps to an event.
+        self._row_events: list[dict] = []
         # Signature of the last render, so we only rebuild the table on change.
         self._last_signature: tuple | None = None
 
@@ -170,9 +221,11 @@ class RestoryMonitorApp(App[None]):
         table = DataTable(id="events", zebra_stripes=True, cursor_type="row")
         table.add_columns("#", "Time", "Tool", "Detail", "Status")
         yield table
+        yield Static("", id="detail", classes="-hidden")
         yield Footer()
 
     def on_mount(self) -> None:
+        self.query_one("#events", DataTable).focus()
         self._refresh()
         self.set_interval(POLL_SECONDS, self._refresh)
 
@@ -190,20 +243,37 @@ class RestoryMonitorApp(App[None]):
             )
             return
 
-        visible = self._visible_events(data["events"])
+        self._events = self._visible_events(data["events"])
+        # If the expanded event has scrolled out of the current view, forget it.
+        if self._expanded_id is not None and not any(
+            ev.get("id") == self._expanded_id for ev in self._events
+        ):
+            self._expanded_id = None
+
+        view = apply_view(
+            self._events,
+            blocked_only=self._blocked_only,
+            tag=self._tag_filter,
+            oldest_first=self._sort_oldest_first,
+        )
         signature = (
             data["armed"],
             data["total"],
             data["blocked"],
             self._clear_before_id,
-            tuple(ev.get("id") for ev in visible),
+            self._blocked_only,
+            self._tag_filter,
+            self._sort_oldest_first,
+            self._expanded_id,
+            tuple(ev.get("id") for ev in view),
         )
         if signature == self._last_signature:
             return
         self._last_signature = signature
 
         self._render_statusbar(data)
-        self._render_table(visible)
+        self._render_table(view)
+        self._render_detail()
 
     def _render_statusbar(self, data: dict) -> None:
         bar = Text()
@@ -218,11 +288,25 @@ class RestoryMonitorApp(App[None]):
             bar.append(f"  session {session['id']}", style="dim")
         else:
             bar.append("not armed", style="bold yellow")
+
+        # Active view filters/sort (read-only; none of these touch the DB).
+        if self._blocked_only:
+            bar.append(" · ")
+            bar.append("blocked only", style="bold yellow")
+        if self._tag_filter is not None:
+            bar.append(" · ")
+            bar.append(f"tag:{self._tag_filter}", style="bold cyan")
+        bar.append(" · ")
+        bar.append(
+            "oldest first" if self._sort_oldest_first else "newest first",
+            style="dim",
+        )
         self.query_one("#statusbar", Static).update(bar)
 
     def _render_table(self, events: list[dict]) -> None:
         table = self.query_one("#events", DataTable)
         table.clear()
+        self._row_events = list(events)
         for ev in events:
             blocked = bool(ev.get("danger"))
             rid = str(ev.get("id") if ev.get("id") is not None else "-")
@@ -252,7 +336,87 @@ class RestoryMonitorApp(App[None]):
                 )
             table.add_row(*row)
 
+    def _render_detail(self) -> None:
+        """Show the expanded event's full details, or hide the pane."""
+        panel = self.query_one("#detail", Static)
+        ev = None
+        if self._expanded_id is not None:
+            ev = next(
+                (e for e in self._events if e.get("id") == self._expanded_id),
+                None,
+            )
+        if ev is None:
+            panel.add_class("-hidden")
+            panel.update("")
+            return
+
+        blocked = bool(ev.get("danger"))
+        tags = ev.get("tags") or []
+        body = Text()
+        head = f"Event {ev.get('id')} — {ev.get('tool_name') or '-'}"
+        body.append(head + "\n", style="bold red" if blocked else "bold")
+        body.append("command: ", style="dim")
+        body.append((_detail_of(ev) or "-") + "\n")
+        body.append("tags:    ", style="dim")
+        body.append((", ".join(tags) if tags else "-") + "\n")
+        body.append("reason:  ", style="dim")
+        body.append((ev.get("reason") or "-") + "\n", style="red" if blocked else "")
+        body.append("time:    ", style="dim")
+        body.append((ev.get("timestamp") or "-") + "\n")
+        body.append("status:  ", style="dim")
+        body.append("blocked" if blocked else "ok",
+                    style="bold red" if blocked else "green")
+        body.append("   (enter to collapse)", style="dim")
+        panel.remove_class("-hidden")
+        panel.update(body)
+
     # -- actions -------------------------------------------------------------
+
+    def action_toggle_blocked(self) -> None:
+        """Toggle showing only blocked events (view-only)."""
+        self._blocked_only = not self._blocked_only
+        self._last_signature = None
+        self._refresh()
+
+    def action_cycle_tag(self) -> None:
+        """Cycle the tag filter: all → each present tag → all (view-only)."""
+        present = sorted({t for ev in self._events for t in (ev.get("tags") or [])})
+        cycle: list[str | None] = [None, *present]
+        try:
+            idx = cycle.index(self._tag_filter)
+        except ValueError:
+            idx = 0
+        self._tag_filter = cycle[(idx + 1) % len(cycle)]
+        self._last_signature = None
+        self._refresh()
+
+    def action_toggle_sort(self) -> None:
+        """Toggle newest-first (default) vs oldest-first ordering (view-only)."""
+        self._sort_oldest_first = not self._sort_oldest_first
+        self._last_signature = None
+        self._refresh()
+
+    def action_row_down(self) -> None:
+        self.query_one("#events", DataTable).action_cursor_down()
+
+    def action_row_up(self) -> None:
+        self.query_one("#events", DataTable).action_cursor_up()
+
+    def action_toggle_detail(self) -> None:
+        """Expand/collapse full details for the highlighted event."""
+        table = self.query_one("#events", DataTable)
+        self._toggle_detail_at(table.cursor_row)
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        self._toggle_detail_at(event.cursor_row)
+
+    def _toggle_detail_at(self, row_index: int | None) -> None:
+        if row_index is None or not (0 <= row_index < len(self._row_events)):
+            return
+        eid = self._row_events[row_index].get("id")
+        self._expanded_id = None if self._expanded_id == eid else eid
+        self._last_signature = None
+        self._refresh()
 
     def action_clear(self) -> None:
         """Hide currently-shown events from the view (does not touch the DB)."""

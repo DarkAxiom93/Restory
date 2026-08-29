@@ -24,3 +24,5 @@ Thumbs.db
 dist/
 test-env/
 *.whl
+
+.gemini/

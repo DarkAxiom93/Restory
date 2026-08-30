@@ -59,13 +59,27 @@ def init(
             f"{', '.join(adapters.agent_keys())} (default: {adapters.DEFAULT_AGENT})."
         ),
     ),
+    all_agents: bool = typer.Option(
+        False,
+        "--all",
+        help=(
+            "Detect every coding agent installed on this system and install "
+            "hooks for all of them (ignores --agent)."
+        ),
+    ),
 ) -> None:
     """Install restory SessionStart + pre/post tool-use hooks for a coding agent.
 
     Defaults to Claude Code (``.claude/settings.json``); ``--agent gemini``
-    writes ``.gemini/settings.json`` instead. The same ``restory hook``
-    entrypoint serves every agent — it detects the payload shape at run time.
+    writes ``.gemini/settings.json`` instead. ``--all`` detects which agents are
+    present and installs hooks for every one in a single run. The same
+    ``restory hook`` entrypoint serves every agent — it detects the payload
+    shape at run time.
     """
+    if all_agents:
+        _init_all()
+        return
+
     try:
         adapter = adapters.get_adapter(agent)
     except ValueError as exc:
@@ -82,6 +96,40 @@ def init(
         typer.echo(f"Backed up existing settings to {result.backup_path}")
     typer.echo(f"Wrote {result.settings_path} ({adapter.label}):")
     typer.echo(result.rendered)
+
+
+def _init_all() -> None:
+    """Install hooks for every detected coding agent, summarizing the outcome."""
+    present = adapters.detect_present_adapters()
+
+    if not present:
+        looked_for = ", ".join(a.label for a in adapters.all_adapters())
+        typer.echo("No coding agents detected on this system.")
+        typer.echo(f"Looked for: {looked_for}.")
+        typer.echo(
+            "Install one, or target a specific agent explicitly with "
+            "`restory init --agent <name>`."
+        )
+        raise typer.Exit(1)
+
+    repo_root = find_repo_root()
+    hook_command = _restory_command("hook")
+    session_command = _restory_command("session-start")
+
+    typer.echo(
+        f"Detected {len(present)} agent(s): "
+        f"{', '.join(a.label for a in present)}"
+    )
+    present_keys = {a.key for a in present}
+    for adapter in present:
+        result = adapter.install(repo_root, hook_command, session_command)
+        if result.backup_path is not None:
+            typer.echo(f"  Backed up existing settings to {result.backup_path}")
+        typer.echo(f"  Installed {adapter.label} hooks -> {result.settings_path}")
+
+    for adapter in adapters.all_adapters():
+        if adapter.key not in present_keys:
+            typer.echo(f"  Skipped {adapter.label} (not detected)")
 
 
 @app.command()

@@ -23,14 +23,23 @@ def find_repo_root(start: Path | None = None) -> Path:
     return current
 
 
+def home_dir() -> Path:
+    """Return the user's home directory.
+
+    Prefers ``%USERPROFILE%`` on Windows, falling back to
+    :meth:`pathlib.Path.home` on other platforms. Resolved lazily (not cached)
+    so tests can redirect it via the environment.
+    """
+    return Path(os.environ.get("USERPROFILE") or Path.home())
+
+
 def get_data_dir() -> Path:
     """Return the restory data directory, creating it if necessary.
 
     Located at ``%USERPROFILE%/.restory`` on Windows, falling back to the
     user's home directory on other platforms.
     """
-    home = Path(os.environ.get("USERPROFILE") or Path.home())
-    data_dir = home / ".restory"
+    data_dir = home_dir() / ".restory"
     data_dir.mkdir(parents=True, exist_ok=True)
     return data_dir
 

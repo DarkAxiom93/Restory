@@ -83,7 +83,14 @@ def main() -> int:
         except Exception as exc:  # pragma: no cover - defensive
             print(f"restory: snapshot failed: {exc}", file=sys.stderr)
 
-    decision = adapter.render_decision(result.danger, result.reason)
+    # Surface the severity in the block reason the agent shows the user, e.g.
+    # ``[CRITICAL] mass-delete: ...``. The stored reason (above) stays clean so
+    # the report/timeline can render severity in its own column.
+    reason = result.reason
+    if result.danger and result.severity:
+        reason = f"[{result.severity}] {result.reason}"
+
+    decision = adapter.render_decision(result.danger, reason)
 
     sys.stdout.write(json.dumps(decision))
     sys.stdout.write("\n")

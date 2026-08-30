@@ -25,10 +25,32 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Footer, Static
 
 from . import store
+from .classify import WARN, severity_for_tags
 
 # ⛔ marker shown on blocked rows. Textual renders through its own UTF-8 buffer,
 # so this stays legible even on a legacy cp1252 Windows console.
 BLOCKED_MARKER = "⛔"
+
+# ⚠ marker shown on flagged-but-allowed (WARN) rows.
+FLAGGED_MARKER = "⚠"
+
+# Per-severity row/label color (rich style names).
+_SEVERITY_STYLE = {
+    "CRITICAL": "bold red",
+    "BLOCK": "red",
+    "WARN": "yellow",
+}
+
+
+def _event_severity(ev: dict) -> str | None:
+    """Effective severity of an event: WARN when tagged-but-allowed, else the
+    max tag severity for a blocked event, or ``None`` when untagged."""
+    tags = ev.get("tags") or []
+    if not tags:
+        return None
+    if ev.get("danger"):
+        return severity_for_tags(tags)
+    return WARN
 
 # How often (seconds) to poll the store for new events.
 POLL_SECONDS = 1.0
@@ -168,7 +190,7 @@ class RestoryMonitorApp(App[None]):
     def compose(self) -> ComposeResult:
         yield Static("", id="statusbar")
         table = DataTable(id="events", zebra_stripes=True, cursor_type="row")
-        table.add_columns("#", "Time", "Tool", "Detail", "Status")
+        table.add_columns("#", "Time", "Tool", "Detail", "Severity", "Status")
         yield table
         yield Footer()
 
@@ -230,16 +252,33 @@ class RestoryMonitorApp(App[None]):
             tool = ev.get("tool_name", "") or "-"
             detail = _detail_of(ev) or "-"
             tags = ev.get("tags") or []
+            severity = _event_severity(ev)
+            sev_style = _SEVERITY_STYLE.get(severity, "")
+            sev_cell = Text(severity or "-", style=sev_style)
 
             if blocked:
                 reason = ev.get("reason", "") or "blocked"
                 tag_suffix = f" [{', '.join(tags)}]" if tags else ""
-                status = Text(f"{BLOCKED_MARKER} {reason}{tag_suffix}", style="bold red")
+                status = Text(f"{BLOCKED_MARKER} {reason}{tag_suffix}", style=sev_style or "bold red")
                 row = (
                     Text(rid, style="red"),
                     Text(time_s, style="red"),
                     Text(tool, style="bold red"),
                     Text(detail, style="red"),
+                    sev_cell,
+                    status,
+                )
+            elif severity is not None:
+                # Approved-but-recorded (WARN): flagged, not silently "ok".
+                reason = ev.get("reason", "") or "flagged"
+                tag_suffix = f" [{', '.join(tags)}]" if tags else ""
+                status = Text(f"{FLAGGED_MARKER} {reason}{tag_suffix}", style="yellow")
+                row = (
+                    Text(rid, style="yellow"),
+                    Text(time_s, style="yellow"),
+                    Text(tool, style="yellow"),
+                    Text(detail, style="yellow"),
+                    sev_cell,
                     status,
                 )
             else:
@@ -248,6 +287,7 @@ class RestoryMonitorApp(App[None]):
                     Text(time_s, style="dim"),
                     Text(tool, style="dim"),
                     Text(detail, style="dim"),
+                    Text("-", style="dim"),
                     Text("ok", style="dim green"),
                 )
             table.add_row(*row)

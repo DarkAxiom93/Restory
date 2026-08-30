@@ -29,6 +29,77 @@ class ClassifyResult:
     tags: list[str] = field(default_factory=list)
     danger: bool = False
     reason: str = ""
+    # Highest severity across ``tags`` (``None`` when there are no tags). A
+    # ``danger`` verdict is exactly ``severity in (BLOCK, CRITICAL)``.
+    severity: str | None = None
+
+
+# --------------------------------------------------------------------------- #
+# Severity levels
+# --------------------------------------------------------------------------- #
+#
+# restory grades every blast-radius tag into one of three severities:
+#
+#   WARN      logged and surfaced, but NOT blocked (approve-but-record). No tag
+#             is WARN by default; it is reserved for lower-risk-but-notable
+#             cases and for tags a user explicitly downgrades.
+#   BLOCK     dangerous — blocked by default.
+#   CRITICAL  irreversible + high-impact — blocked by default, and eligible to
+#             raise a notification.
+#
+# BLOCK and CRITICAL both block; only WARN allows. The mapping below must never
+# downgrade a currently-blocked tag to WARN — that would weaken the gate.
+
+WARN = "WARN"
+BLOCK = "BLOCK"
+CRITICAL = "CRITICAL"
+
+SEVERITIES = (WARN, BLOCK, CRITICAL)
+
+# Ascending order of severity; used to compare, sort, and take the max.
+_SEVERITY_RANK = {WARN: 1, BLOCK: 2, CRITICAL: 3}
+
+# Default severity of each blast-radius tag. Everything here is BLOCK or
+# CRITICAL: nothing that is blocked today may default to WARN.
+_TAG_SEVERITY: dict[str, str] = {
+    # CRITICAL — irreversible + high-impact.
+    "mass-delete": CRITICAL,       # rm -rf ~ or /, find -delete
+    "net-egress": CRITICAL,        # exfiltration channel to an external host
+    "pipe-to-shell": CRITICAL,     # download-and-execute (curl | sh, iex)
+    "git-hook-write": CRITICAL,    # persistence via a git hook
+    # BLOCK — dangerous, blocked by default.
+    "read-secret": BLOCK,
+    "git-destructive": BLOCK,
+    "write-outside-repo": BLOCK,
+    "uninspectable": BLOCK,        # statically opaque code; block to be safe
+}
+
+# Fail-safe default for any tag not in the table above: block, never allow.
+_DEFAULT_TAG_SEVERITY = BLOCK
+
+
+def severity_rank(severity: str | None) -> int:
+    """Comparable rank for a severity (``None`` -> 0, below every real level)."""
+    if severity is None:
+        return 0
+    return _SEVERITY_RANK.get(severity, 0)
+
+
+def severity_for_tag(tag: str) -> str:
+    """Default severity for a single blast-radius tag (fail-safe: BLOCK)."""
+    return _TAG_SEVERITY.get(tag, _DEFAULT_TAG_SEVERITY)
+
+
+def severity_for_tags(tags: list[str] | None) -> str | None:
+    """Highest severity across ``tags``; ``None`` when there are no tags."""
+    if not tags:
+        return None
+    return max((severity_for_tag(t) for t in tags), key=_SEVERITY_RANK.__getitem__)
+
+
+def is_blocking(severity: str | None) -> bool:
+    """True when ``severity`` should block the call (BLOCK or CRITICAL)."""
+    return severity_rank(severity) >= _SEVERITY_RANK[BLOCK]
 
 
 # --------------------------------------------------------------------------- #
@@ -663,10 +734,16 @@ def classify(tool_call: dict, repo_root: Path | None = None) -> ClassifyResult:
     else:
         tags, reasons = [], {}
 
-    danger = bool(tags)
+    # Severity is the max across the tags; the block/allow decision follows from
+    # it. With the default mapping every tag is BLOCK/CRITICAL, so danger stays
+    # exactly ``bool(tags)`` — backwards compatible. Only an explicit WARN
+    # downgrade turns a tagged call into approve-but-record.
+    severity = severity_for_tags(tags)
+    danger = is_blocking(severity)
+
     reason = "no blast-radius indicators"
     for tag in _TAG_PRIORITY:
         if tag in reasons:
             reason = reasons[tag]
             break
-    return ClassifyResult(tags=tags, danger=danger, reason=reason)
+    return ClassifyResult(tags=tags, danger=danger, reason=reason, severity=severity)

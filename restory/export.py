@@ -124,22 +124,49 @@ def render_markdown(data: dict, url: str) -> str:
             lines.append(f"| `{_md_cell(tag)}` | {count} |")
         lines.append("")
 
+    severity_counts = data.get("severity_counts") or {}
+    if severity_counts:
+        lines.append("### Severity")
+        lines.append("")
+        lines.append(
+            "- "
+            + " · ".join(f"**{sev}** {count}" for sev, count in severity_counts.items())
+        )
+        lines.append("")
+
     blocked_commands = data["blocked_commands"]
     if blocked_commands:
         lines.append("## 🚫 Blocked commands")
         lines.append("")
-        lines.append("| # | Time | Tool | Command | Reason |")
-        lines.append("| --: | --- | --- | --- | --- |")
+        lines.append("| # | Severity | Time | Tool | Command | Reason |")
+        lines.append("| --: | --- | --- | --- | --- | --- |")
         for c in blocked_commands:
             cmd = _md_cell(c.get("command", ""))
             lines.append(
-                f"| {c.get('id', '-')} | {_fmt_ts(c.get('timestamp'))} "
+                f"| {c.get('id', '-')} | {_md_cell(c.get('severity', ''))} "
+                f"| {_fmt_ts(c.get('timestamp'))} "
                 f"| {_md_cell(c.get('tool_name', ''))} | `{cmd}` "
                 f"| {_md_cell(c.get('reason', ''))} |"
             )
         lines.append("")
     elif total:
         lines.append("✅ **No commands were blocked in this session.**")
+        lines.append("")
+
+    warned_commands = data.get("warned_commands") or []
+    if warned_commands:
+        lines.append("## ⚠️ Flagged (allowed)")
+        lines.append("")
+        lines.append("| # | Severity | Time | Tool | Command | Reason |")
+        lines.append("| --: | --- | --- | --- | --- | --- |")
+        for c in warned_commands:
+            cmd = _md_cell(c.get("command", ""))
+            lines.append(
+                f"| {c.get('id', '-')} | {_md_cell(c.get('severity', ''))} "
+                f"| {_fmt_ts(c.get('timestamp'))} "
+                f"| {_md_cell(c.get('tool_name', ''))} | `{cmd}` "
+                f"| {_md_cell(c.get('reason', ''))} |"
+            )
         lines.append("")
 
     lines.append("---")
@@ -164,7 +191,9 @@ def render_json(data: dict, url: str) -> str:
         "blocked": data["blocked"],
         "approved": data["total_events"] - data["blocked"],
         "tags": data["tags"],
+        "severity_counts": data.get("severity_counts", {}),
         "blocked_commands": data["blocked_commands"],
+        "warned_commands": data.get("warned_commands", []),
     }
     return json.dumps(payload, indent=2)
 
@@ -179,6 +208,31 @@ def _html_rows(rows: list[list[str]]) -> str:
     for row in rows:
         cells = "".join(f"<td>{html.escape(str(c))}</td>" for c in row)
         out.append(f"<tr>{cells}</tr>")
+    return "\n".join(out)
+
+
+# Lowercased severity -> CSS class for coloring the severity cell.
+_SEVERITY_CLASS = {"CRITICAL": "sev-critical", "BLOCK": "sev-block", "WARN": "sev-warn"}
+
+
+def _html_cmd_rows(commands: list[dict]) -> str:
+    """Render command rows with a colored severity cell (# / Sev / Time / Tool / Cmd / Reason)."""
+    out = []
+    for c in commands:
+        sev = c.get("severity") or "-"
+        sev_class = _SEVERITY_CLASS.get(sev, "")
+        id_cell = f"<td>{html.escape(str(c.get('id', '-')))}</td>"
+        sev_cell = f'<td class="sev {sev_class}">{html.escape(str(sev))}</td>'
+        rest = "".join(
+            f"<td>{html.escape(str(v))}</td>"
+            for v in (
+                _fmt_ts(c.get("timestamp")),
+                c.get("tool_name", ""),
+                c.get("command", ""),
+                c.get("reason", ""),
+            )
+        )
+        out.append(f"<tr>{id_cell}{sev_cell}{rest}</tr>")
     return "\n".join(out)
 
 
@@ -197,25 +251,25 @@ def render_html(data: dict, url: str) -> str:
     )
 
     if data["blocked_commands"]:
-        cmd_rows = _html_rows(
-            [
-                [
-                    c.get("id", "-"),
-                    _fmt_ts(c.get("timestamp")),
-                    c.get("tool_name", ""),
-                    c.get("command", ""),
-                    c.get("reason", ""),
-                ]
-                for c in data["blocked_commands"]
-            ]
-        )
+        cmd_rows = _html_cmd_rows(data["blocked_commands"])
         cmd_section = (
             f"""<h2>🚫 Blocked commands</h2>
-<table><thead><tr><th>#</th><th>Time</th><th>Tool</th><th>Command</th><th>Reason</th></tr></thead>
+<table><thead><tr><th>#</th><th>Severity</th><th>Time</th><th>Tool</th><th>Command</th><th>Reason</th></tr></thead>
 <tbody>{cmd_rows}</tbody></table>"""
         )
     else:
         cmd_section = "<p class='ok'>✅ No commands were blocked in this session.</p>"
+
+    warned_commands = data.get("warned_commands") or []
+    if warned_commands:
+        warn_rows = _html_cmd_rows(warned_commands)
+        warn_section = (
+            f"""<h2>⚠️ Flagged (allowed)</h2>
+<table><thead><tr><th>#</th><th>Severity</th><th>Time</th><th>Tool</th><th>Command</th><th>Reason</th></tr></thead>
+<tbody>{warn_rows}</tbody></table>"""
+        )
+    else:
+        warn_section = ""
 
     return f"""<!doctype html>
 <html lang="en">
@@ -242,6 +296,10 @@ def render_html(data: dict, url: str) -> str:
   th {{ color: #8b949e; font-weight: 600; }}
   td:nth-child(4), code {{ font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }}
   .ok {{ color: #3fb950; font-weight: 600; }}
+  td.sev {{ font-weight: 700; letter-spacing: .02em; }}
+  .sev-critical {{ color: #f85149; }}
+  .sev-block {{ color: #ff7b72; }}
+  .sev-warn {{ color: #d29922; }}
   footer {{ margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #21262d;
             color: #8b949e; font-size: .9rem; }}
   a {{ color: #58a6ff; }}
@@ -257,6 +315,7 @@ def render_html(data: dict, url: str) -> str:
 </div>
 {tag_section}
 {cmd_section}
+{warn_section}
 <footer>Generated by <strong>restory</strong> — {_TAGLINE}. <a href="{html.escape(url)}">{html.escape(url)}</a></footer>
 </body>
 </html>

@@ -155,11 +155,18 @@ class Adapter:
         way of proving presence override this method; ``restory init --all``
         only ever calls ``detect`` — it never inspects these attributes — so a
         custom override slots in transparently.
+
+        Detection is driven *entirely* by three mockable seams so that tests
+        (and callers) can isolate it fully: :func:`config.home_dir` (the config
+        dir in ``$USERPROFILE``/home), :func:`config.find_repo_root` (the config
+        dir in the repo root), and :func:`shutil.which` (the executable on
+        ``PATH``). It never touches the real filesystem except through these —
+        in particular it does not walk the tree on its own, so mocking the
+        seams above completely determines the result.
         """
         if self.config_dirname:
-            if (config.home_dir() / self.config_dirname).is_dir():
-                return True
-            if (config.find_repo_root() / self.config_dirname).is_dir():
+            probe_roots = (config.home_dir(), config.find_repo_root())
+            if any((root / self.config_dirname).is_dir() for root in probe_roots):
                 return True
         return any(shutil.which(exe) for exe in self.executables)
 

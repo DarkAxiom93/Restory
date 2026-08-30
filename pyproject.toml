@@ -30,3 +30,10 @@ packages = ["restory"]
 
 [tool.hatch.build.targets.sdist.force-include]
 "restory/ui/out" = "restory/ui/out"
+
+[tool.ruff]
+# Match the project's minimum supported Python (see requires-python above).
+target-version = "py310"
+line-length = 100
+# The exported Next.js UI and local virtualenvs are not our source to lint.
+extend-exclude = ["restory/ui", "test-env"]

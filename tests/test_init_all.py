@@ -43,10 +43,15 @@ def test_detect_finds_config_dir_in_home(tmp_path, monkeypatch):
     home.mkdir()
     (home / ".claude").mkdir()
     monkeypatch.setenv("USERPROFILE", str(home))
-    # Work from an empty dir so the repo-root probe and PATH don't interfere.
+    # Isolate the repo-root probe to an empty dir. Just chdir'ing to an empty
+    # dir is NOT enough: find_repo_root() walks *up* the real filesystem, so if
+    # the pytest tmp tree sits under a real git repo (e.g. --basetemp=.pytest-tmp
+    # inside this checkout) it would climb into it and see the real .claude/
+    # .gemini dirs. Pin the seam directly.
     workdir = tmp_path / "work"
     workdir.mkdir()
     monkeypatch.chdir(workdir)
+    monkeypatch.setattr(adapters.config, "find_repo_root", lambda: workdir)
     monkeypatch.setattr(adapters.shutil, "which", lambda _exe: None)
 
     assert adapters.get_adapter("claude").detect() is True
@@ -59,6 +64,9 @@ def test_detect_finds_config_dir_in_repo_root(tmp_path, monkeypatch):
     monkeypatch.setenv("USERPROFILE", str(home))
     repo = _repo(tmp_path, monkeypatch)
     (repo / ".gemini").mkdir()
+    # Pin the repo-root seam explicitly so the probe targets this repo and can't
+    # climb into a real checkout above the tmp tree.
+    monkeypatch.setattr(adapters.config, "find_repo_root", lambda: repo)
     monkeypatch.setattr(adapters.shutil, "which", lambda _exe: None)
 
     assert adapters.get_adapter("gemini").detect() is True
@@ -69,9 +77,13 @@ def test_detect_finds_executable_on_path(tmp_path, monkeypatch):
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("USERPROFILE", str(home))
+    # Isolate the repo-root probe (see note in test_detect_finds_config_dir_in_home):
+    # PATH must be the *only* signal here, so pin find_repo_root() to an empty dir
+    # rather than trusting an empty cwd, which find_repo_root() would climb out of.
     workdir = tmp_path / "work"
     workdir.mkdir()
     monkeypatch.chdir(workdir)
+    monkeypatch.setattr(adapters.config, "find_repo_root", lambda: workdir)
     monkeypatch.setattr(
         adapters.shutil,
         "which",

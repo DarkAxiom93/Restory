@@ -26,3 +26,9 @@ test-env/
 *.whl
 
 .gemini/
+
+.cursor/
+docs/demo-old.gif
+
+.cursor/
+docs/demo-old.gif

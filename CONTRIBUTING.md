@@ -47,6 +47,27 @@ your changes didn't break the core flow:
 python scripts/selfcheck.py
 ```
 
+## Pre-commit hooks
+
+We use [pre-commit](https://pre-commit.com/) for lightweight formatting and
+linting (trailing whitespace, end-of-file, YAML/JSON checks, and
+[ruff](https://docs.astral.sh/ruff/) format + lint). It's optional but
+recommended — it keeps diffs clean. Set it up once:
+
+```bash
+pip install pre-commit && pre-commit install
+```
+
+After that the hooks run automatically on every `git commit`. To run them across
+the whole repo (handy the first time, or before opening a PR):
+
+```bash
+pre-commit run --all-files
+```
+
+Pre-commit isn't enforced in CI, so a missed style nit won't block your PR — but
+running it locally saves a review round-trip.
+
 ## Found a bypass? We especially want to hear it 🎯
 
 restory's whole promise leans on the classifier catching dangerous effects, so

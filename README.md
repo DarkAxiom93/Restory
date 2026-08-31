@@ -8,6 +8,7 @@
 **restory adds best-effort guardrails to your AI coding agent: it blocks dangerous commands before they run, records intercepted tool calls to a local timeline, and rolls back Git-visible workspace changes to the session baseline. Local-only. Claude Code · Gemini CLI (experimental).** 
 
 ![restory in action](docs/demo.gif)
+*Claude Code edits normally while restory records the session, blocks high-risk commands, and rolls the workspace back to the session baseline.*
 
 ```bash
 pip install restory && restory init   # then run your agent as usual

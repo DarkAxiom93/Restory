@@ -5,7 +5,7 @@
 [![CI](https://github.com/DarkAxiom93/Restory/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkAxiom93/Restory/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/downloads/)
 
-**restory blocks the dangerous thing your AI coding agent tries — reading your `.env`, `rm -rf`, exfiltrating to a pastebin — records everything it touches, and restores your whole tree with one command. Local-only.** 
+**restory adds best-effort guardrails to your AI coding agent: it blocks dangerous commands before they run, records intercepted tool calls to a local timeline, and rolls back Git-visible workspace changes to the session baseline. Local-only. Claude Code · Gemini CLI (experimental).** 
 
 ![restory in action](docs/demo.gif)
 
@@ -25,8 +25,8 @@ AI coding agents (Claude Code, Cursor, Copilot) run as *you* — with your files
 ## What it does
 
 - 🛑 **Blocks dangerous effects** — secret reads, network exfiltration, mass deletes, git-history nukes, writes outside the repo — *before* they execute.
-- 📼 **Records everything** — a live, local timeline of every file your agent touched and every command it ran.
-- ↩️ **One-command restore** — `restory undo --session` snaps your whole working tree back to where the session started.
+- 📼 **Records intercepted activity** — a live, local timeline of the commands and file changes restory intercepts (Bash/Write/Edit tool calls).
+- ↩️ **Session rollback** — `restory undo --session` rolls back the Git-visible working-tree changes captured during the session.
 - 🔒 **Local-only** — no accounts, no cloud, nothing leaves your machine.
 
 ## Commands
@@ -94,9 +94,10 @@ Works on Windows, macOS, and Linux. Hook-based — no kernel driver, no containe
 
 Being honest, because security tools that overpromise get torn apart:
 
-- It's **not a sandbox.** A determined attacker with code execution can bypass any command inspection — "argument inspection is theater." restory is defense-in-depth + visibility + instant restore, not a kernel jail.
-- It **won't catch every obfuscation.** It nails the common, high-value danger classes (exfil, mass-delete, secret reads, pipe-to-shell). Novel encodings can slip the classifier — that's what the restore net is for.
-- It **doesn't replace your judgment.** It surfaces what the agent tried and lets you reverse it. You're still the human in the loop.
+- It's **not a sandbox and not a security boundary.** A determined attacker with code execution can bypass static command inspection — shell wrappers (`bash -c`), scripts, indirect execution, and encoded commands all defeat it. Use an OS sandbox or container for a hard boundary; restory complements isolation, it doesn't replace it.
+- **Rollback has limits.** `undo` reverses Git-visible working-tree changes that restory snapshotted. It does **not** reverse: data already exfiltrated, a completed `git push` or API call, changes outside the worktree, system/package changes, or files excluded by `.gitignore` (a gitignored `.env` may not be in the snapshot). Undo is a recovery tool for workspace state, not a safety net for confidentiality or remote side effects.
+- It **doesn't trace every file the agent touches.** It classifies the intercepted tool calls (Bash/Write/Edit) — it doesn't do OS-level file-access tracing, and it doesn't currently intercept the agent's built-in `Read` tool.
+- It **doesn't replace your judgment.** It surfaces what the agent tried and lets you reverse workspace changes. You're still the human in the loop.
 
 ## FAQ
 
@@ -107,25 +108,34 @@ shell-effect classifier that covers command-substitution, pipe-to-shell,
 ground-truth undo via a shadow git repo; a live timeline; and an adapter layer for multiple agents. That's the difference between a weekend hack and something you'd actually trust on a real repo. `pip install restory` takes one second.
 
 **Isn't this just Claude Code's permission prompts?**
-No. Native prompts are per-tool yes/no fatigue, they miss the `~/` expansion
-and shell-builtin bypass classes (that's literally CVE-2026-22708), they show
-no network-egress view, and they produce no shareable record. Restory is
-effect-aware, records the whole session, and gives you one-command undo.
+No. Native prompts are per-tool yes/no fatigue, they miss the `~/` expansion and
+shell-builtin bypass classes, they show no network-egress view, and they produce
+no shareable record. Restory is effect-aware, records the session, and gives you
+one-command workspace rollback. (CVE-2026-22708 is an example of *why* command
+allowlists are brittle — restory doesn't claim to remediate that specific Cursor
+vulnerability.)
 
 **Why not just run the agent in a container?**
 Containers are great for isolation but too heavy for the everyday inner loop —
-especially on Windows. Restory is a hook, not a VM: near-zero overhead, no
-Docker, no WSL friction.
+especially on Windows. Restory is a hook, lightweight — no VM or container required.
 
 **Can't the classifier be bypassed?**
-Yes. Argument inspection is theater against a determined attacker — we say so
-above. That's the whole point of the undo net: even if a novel obfuscation
-slips the classifier, `restory undo --session` resets your tree to the
-session baseline. Defense-in-depth + instant recovery, not a perfect filter.
+Yes — easily, and I don't hide it. Static inspection of shell can't win against
+`bash -c`, scripts, or encoded commands (my own selfcheck lists known bypasses).
+So the classifier is a best-effort pre-execution guard, not a boundary. For real
+containment, use an OS sandbox. What restory adds on top: a local audit trail,
+visibility, and workspace rollback for the cases it does catch.
 
 **Does it send my data anywhere?**
 No. Everything is local — a SQLite store and a shadow git repo on your
 machine. No accounts, no cloud, no telemetry.
+
+**Why not just use Claude Code's sandbox?**
+You should, when you can — restory isn't trying to replace OS-level isolation.
+A sandbox prevents classes of host/network effects at the OS boundary. restory
+adds a local timeline, auditable reports, best-effort pre-execution warnings, and
+session rollback around agent activity. They're complementary layers, not
+substitutes — use both.
 
 ## How it works
 

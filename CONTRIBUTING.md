@@ -9,19 +9,22 @@ report, PR, and idea makes it more trustworthy. This guide gets you set up fast.
 ```bash
 git clone https://github.com/DarkAxiom93/Restory.git
 cd Restory
-pip install -e .
 ```
 
-The live timeline UI is a Next.js app that gets exported to static files. Build
-it once (and again whenever you change anything under `restory/ui/`):
+The live timeline UI is a Next.js app that gets exported to static files, and
+the Python package bundles that build — so **build the UI first**, then install:
 
 ```bash
 cd restory/ui
 npm install
 npm run build
+cd ../..
+pip install -e .
 ```
 
-That writes the exported UI into `restory/ui/out`, which `restory open` serves.
+Rebuild the UI (`npm run build` in `restory/ui`) whenever you change anything
+under `restory/ui/`. The exported UI lands in `restory/ui/out`, which `restory
+open` serves.
 
 ## Running the tests
 

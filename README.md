@@ -131,6 +131,12 @@ machine. No accounts, no cloud, no telemetry.
 
 `restory init` installs pre/post tool-use and session-start hooks for your agent (`PreToolUse` / `PostToolUse` on Claude Code, the equivalent `BeforeTool` / `AfterTool` on Gemini CLI). A thin adapter layer normalizes each agent's hook payload into one canonical shape and formats the decision each agent expects, so the classifier, store, and snapshot logic are shared unchanged across agents. Every tool call the agent makes is classified for blast radius; dangerous effects are blocked with a reason, everything is logged to a local SQLite store, and the working tree is snapshotted to a shadow git repo so `undo` is exact.
 
+## Roadmap
+
+restory is actively developed. On the horizon: broader agent support, richer
+policy controls, and team features. Have a request? Open an issue — I'm
+prioritizing by what people actually ask for.
+
 ## License
 
 MIT

@@ -21,7 +21,7 @@ restory open                          # watch the live blast-radius timeline
 
 AI coding agents (Claude Code, Cursor, Copilot) run as *you* — with your files, your keys, your shell. A single hallucination or a poisoned file in a repo can `rm -rf` your home dir or POST your `.env` to a pastebin. Allowlists don't catch it ([CVE-2026-22708](https://www.docker.com/blog/coding-agent-horror-stories-the-command-you-already-approved/)), and a container is too heavy for the inner loop.
 
-**restory** sits between the agent and your machine: it inspects the *effect* of every command before it runs, records the whole session, and restores it with one keystroke.
+**restory** sits between the agent and your machine: it inspects the *effect* of each command before it runs, records the tool calls it intercepts, and restores your Git-visible workspace changes with one keystroke.
 
 ## What it does
 
@@ -41,7 +41,7 @@ AI coding agents (Claude Code, Cursor, Copilot) run as *you* — with your files
 | `restory status` | Quick health check: is the session armed, shadow ready, UI built? |
 | `restory diff` | Show what the agent changed since the session started (`--stat`, `--name-only`) |
 | `restory export` | Export the session as a shareable report (`--format md/json/html`) |
-| `restory undo --session` | Snap your whole working tree back to where the session started |
+| `restory undo --session` | Restore the Git-visible working-tree changes captured this session |
 
 ## Example session report
 
@@ -105,8 +105,8 @@ Being honest, because security tools that overpromise get torn apart:
 **Why not just build this myself in a weekend?**
 You could build a basic version — but "basic" is the trap. What's here is a
 shell-effect classifier that covers command-substitution, pipe-to-shell,
-`find -delete`, redirect writes, and the unquoted-`~` expansion class; exact
-ground-truth undo via a shadow git repo; a live timeline; and an adapter layer for multiple agents. That's the difference between a weekend hack and something you'd actually trust on a real repo. `pip install restory` takes one second.
+`find -delete`, redirect writes, and the unquoted-`~` expansion class; a shadow
+git repo that restores the Git-visible working tree to the session baseline; a live timeline; and an adapter layer for multiple agents. That's the difference between a weekend hack and something you'd actually trust on a real repo. `pip install restory` takes one second.
 
 **Isn't this just Claude Code's permission prompts?**
 No. Native prompts are per-tool yes/no fatigue, they miss the `~/` expansion and
@@ -140,7 +140,7 @@ substitutes — use both.
 
 ## How it works
 
-`restory init` installs pre/post tool-use and session-start hooks for your agent (`PreToolUse` / `PostToolUse` on Claude Code, the equivalent `BeforeTool` / `AfterTool` on Gemini CLI). A thin adapter layer normalizes each agent's hook payload into one canonical shape and formats the decision each agent expects, so the classifier, store, and snapshot logic are shared unchanged across agents. Every tool call the agent makes is classified for blast radius; dangerous effects are blocked with a reason, everything is logged to a local SQLite store, and the working tree is snapshotted to a shadow git repo so `undo` is exact.
+`restory init` installs pre/post tool-use and session-start hooks for your agent (`PreToolUse` / `PostToolUse` on Claude Code, the equivalent `BeforeTool` / `AfterTool` on Gemini CLI). A thin adapter layer normalizes each agent's hook payload into one canonical shape and formats the decision each agent expects, so the classifier, store, and snapshot logic are shared unchanged across agents. Every tool call the agent makes is classified for blast radius; dangerous effects are blocked with a reason, everything is logged to a local SQLite store, and the working tree is snapshotted to a shadow git repo so `undo` can restore the Git-visible working-tree changes to the session baseline.
 
 ## Roadmap
 

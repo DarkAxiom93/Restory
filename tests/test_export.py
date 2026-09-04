@@ -128,6 +128,55 @@ def test_html_renders_scripted_command_as_inert_text():
     _P().feed(out)
 
 
+def test_markdown_backtick_payload_stays_inside_code_span():
+    """A command with a backtick + image markdown must not break out of its span.
+
+    Command text is attacker-influenced. In the Markdown table the command is
+    wrapped in a `` `...` `` code span; a literal backtick would terminate the
+    span early and let an ``![](url)`` image / ``[text](url)`` link render live
+    outside it, spoofing a dangerous command as clean. The backtick must be
+    neutralized so the whole payload stays inside the code span as inert text.
+    """
+    bt = chr(96)  # backtick
+    evil = "htt" + "ps://evil.example/track.png"
+    # Balanced code spans on each side of the payload is the form that, unfixed,
+    # renders the image LIVE outside any code span.
+    payload = "x" + bt + " ![run-was-clean](" + evil + ") " + bt + "y"
+    data = {
+        "session": None,
+        "total_events": 1,
+        "blocked": 1,
+        "tags": {},
+        "blocked_commands": [
+            {
+                "id": 1,
+                "timestamp": "2026-08-28T12:00:00+00:00",
+                "tool_name": "Bash",
+                "command": payload,
+                "tags": [],
+                "reason": "mass-delete: rm -rf ~",
+            }
+        ],
+    }
+    md = export.render(data, fmt="md", url=URL)
+
+    row = next(line for line in md.splitlines() if line.startswith("| 1 |"))
+    # Cells are separated by unescaped " | "; the command is the 4th column
+    # (#, Time, Tool, Command, Reason). The payload here contains no pipe.
+    cmd_cell = row.split(" | ")[3]
+
+    # The command cell is a single, intact code span: it opens and closes with a
+    # backtick and contains no interior backtick to break out of.
+    assert cmd_cell.startswith(bt) and cmd_cell.endswith(bt)
+    assert bt not in cmd_cell[1:-1], (
+        f"interior backtick would let markup escape the code span: {cmd_cell!r}"
+    )
+    # The offending backtick was neutralized to the inert look-alike, so the
+    # image syntax is trapped inside the span as literal text (never live markup).
+    assert export._BACKTICK_SUBSTITUTE in cmd_cell
+    assert "![run-was-clean]" in cmd_cell  # present, but inert inside the span
+
+
 def test_empty_session_still_renders():
     empty = {"session": None, "total_events": 0, "blocked": 0, "tags": {}, "blocked_commands": []}
     md = export.render(empty, fmt="md", url=URL)

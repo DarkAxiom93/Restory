@@ -94,9 +94,34 @@ def _session_line(session: dict | None) -> str:
 # --------------------------------------------------------------------------- #
 
 
+# Visually similar, Markdown-inert stand-in for a backtick (U+02CB MODIFIER
+# LETTER GRAVE ACCENT). A literal backtick cannot be backslash-escaped inside a
+# code span, so we substitute it instead.
+_BACKTICK_SUBSTITUTE = "ˋ"
+
+
 def _md_cell(text: str) -> str:
-    """Escape a value for use inside a Markdown table cell."""
-    return (text or "-").replace("\\", "\\\\").replace("|", "\\|").replace("\n", " ").replace("\r", "")
+    """Escape a value for safe rendering inside a GitHub-flavored Markdown table cell.
+
+    Besides the table-structural characters (``|`` and newlines) and the
+    backslash, this neutralizes backticks. Command text is attacker-influenced
+    and is rendered wrapped in a `` `...` `` inline code span; a literal backtick
+    in the value would close that span early and let the remainder render as live
+    Markdown — an ``![](url)`` image or a ``[text](url)`` link outside any code
+    span — which could make a blocked, dangerous command read as clean in a
+    report meant to be pasted into an issue, PR, or social post. GFM table cells
+    also can't contain literal newlines, and a backtick can't be backslash-
+    escaped inside a code span, so the backtick is replaced with a look-alike
+    (U+02CB) rather than escaped.
+    """
+    return (
+        (text or "-")
+        .replace("\\", "\\\\")
+        .replace("|", "\\|")
+        .replace("`", _BACKTICK_SUBSTITUTE)
+        .replace("\n", " ")
+        .replace("\r", "")
+    )
 
 
 def render_markdown(data: dict, url: str) -> str:

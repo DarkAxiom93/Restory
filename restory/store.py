@@ -254,3 +254,28 @@ def latest_session(
         "anchor_commit": anchor_commit,
         "repo_root": stored_root,
     }
+
+
+def session_repo_mismatch(
+    session: dict, repo_root: Path | str | None = None
+) -> str | None:
+    """Return a hard-fail message if ``session`` belongs to a *different* repo.
+
+    Compares the session's stored ``repo_root`` against the key for ``repo_root``
+    (the current repo by default) and returns a ready-to-print refusal message on
+    mismatch, or ``None`` when they agree.
+
+    :func:`latest_session` already scopes reads by repo, so a mismatch here can
+    only come from a corrupted or hand-edited row. Every undo entry point
+    (``restory undo --session`` and the monitor TUI's undo action) calls this and
+    refuses rather than ever resetting a work tree to an anchor recorded for
+    another repository.
+    """
+    current_key = repo_key(repo_root)
+    stored = session.get("repo_root")
+    if stored != current_key:
+        return (
+            "Refusing to undo: the recorded session belongs to a different "
+            f"repository ({stored!r}), not the current one ({current_key!r})."
+        )
+    return None

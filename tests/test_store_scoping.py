@@ -111,6 +111,26 @@ def test_old_database_without_repo_root_migrates_without_crashing(tmp_path):
     assert store.count_events(repo_root=tmp_path / "repoX", db_path=db) == 1
 
 
+def test_session_repo_mismatch_helper_flags_foreign_row(tmp_path):
+    """The shared guard both undo paths use: matches current repo, flags others."""
+    repo = tmp_path / "repo"
+
+    # A session recorded for THIS repo passes (no refusal message).
+    same = {"id": 1, "anchor_commit": "abc", "repo_root": store.repo_key(repo)}
+    assert store.session_repo_mismatch(same, repo_root=repo) is None
+
+    # A session whose stored key is some other repo hard-fails with a message.
+    foreign = {
+        "id": 2,
+        "anchor_commit": "def",
+        "repo_root": store.repo_key(tmp_path / "elsewhere"),
+    }
+    msg = store.session_repo_mismatch(foreign, repo_root=repo)
+    assert msg is not None
+    assert "different repository" in msg
+    assert "Refusing to undo" in msg
+
+
 # --------------------------------------------------------------------------- #
 # End-to-end: undo --session must never cross repository boundaries.
 # --------------------------------------------------------------------------- #

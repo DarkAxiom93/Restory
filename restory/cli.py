@@ -149,13 +149,10 @@ def undo(
         # a different repository. ``latest_session`` is already scoped to this
         # repo, so this can only fail on a corrupted/hand-edited row — in which
         # case we hard-fail rather than guess or fall back to another session.
-        current_key = store.repo_key(shadow.repo_root)
-        if sess.get("repo_root") != current_key:
-            typer.echo(
-                "Refusing to undo: the recorded session belongs to a different "
-                f"repository ({sess.get('repo_root')!r}), not the current one "
-                f"({current_key!r})."
-            )
+        # The same guard runs in the monitor TUI's undo path via this helper.
+        mismatch = store.session_repo_mismatch(sess, repo_root=shadow.repo_root)
+        if mismatch is not None:
+            typer.echo(mismatch)
             raise typer.Exit(1)
         try:
             changes = shadow.undo_to(sess["anchor_commit"])

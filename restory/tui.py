@@ -295,6 +295,14 @@ class RestoryMonitorApp(App[None]):
                 title="undo",
             )
             return
+        # Defense in depth, identical to the CLI's ``undo --session`` guard:
+        # never reset this work tree to an anchor recorded for a different repo.
+        # ``latest_session`` is already scoped, so this only trips on a corrupted
+        # or hand-edited row — in which case we refuse rather than guess.
+        mismatch = store.session_repo_mismatch(sess, repo_root=shadow.repo_root)
+        if mismatch is not None:
+            self.notify(mismatch, severity="error", title="undo")
+            return
         try:
             changes = shadow.undo_to(sess["anchor_commit"])
         except snapshot.SnapshotError as exc:

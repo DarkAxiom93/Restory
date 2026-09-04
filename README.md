@@ -97,7 +97,7 @@ Being honest, because security tools that overpromise get torn apart:
 
 - It's **not a sandbox and not a security boundary.** A determined attacker with code execution can bypass static command inspection — shell wrappers (`bash -c`), scripts, indirect execution, and encoded commands all defeat it. Use an OS sandbox or container for a hard boundary; restory complements isolation, it doesn't replace it.
 - **Rollback has limits.** `undo` reverses Git-visible working-tree changes that restory snapshotted. It does **not** reverse: data already exfiltrated, a completed `git push` or API call, changes outside the worktree, system/package changes, or files excluded by `.gitignore` (a gitignored `.env` may not be in the snapshot). Undo is a recovery tool for workspace state, not a safety net for confidentiality or remote side effects.
-- It **doesn't trace every file the agent touches.** It classifies the intercepted tool calls (Bash/Write/Edit) — it doesn't do OS-level file-access tracing, and it doesn't currently intercept the agent's built-in `Read` tool.
+- It **doesn't trace every file the agent touches.** It classifies the intercepted tool calls (Bash/Write/Edit) — it doesn't do OS-level file-access tracing, and it doesn't currently intercept the agent's built-in `Read` tool. Concretely: an agent that reads a secret file via `Read` leaves no trace here, while the same read run as `cat` through Bash would be caught and classified.
 - It **doesn't replace your judgment.** It surfaces what the agent tried and lets you reverse workspace changes. You're still the human in the loop.
 
 ## FAQ

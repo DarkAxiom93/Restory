@@ -31,12 +31,13 @@ def test_status_armed_after_session_with_events(monkeypatch, tmp_path):
     repo = _isolate(monkeypatch, tmp_path)
     repo.mkdir()
 
-    sid = store.record_session("deadbeef", started_at="2026-08-28T00:00:00+00:00")
+    sid = store.record_session("deadbeef", started_at="2026-08-28T00:00:00+00:00",
+                               repo_root=repo)
     store.append_event("Bash", [], False, "ok", {"tool_input": {"command": "ls"}},
-                       timestamp="2026-08-28T00:01:00+00:00")
+                       timestamp="2026-08-28T00:01:00+00:00", repo_root=repo)
     store.append_event("Bash", ["net-egress"], True, "block",
                        {"tool_input": {"command": "curl x"}},
-                       timestamp="2026-08-28T00:02:00+00:00")
+                       timestamp="2026-08-28T00:02:00+00:00", repo_root=repo)
 
     data = status.build_status(repo_root=repo)
 
@@ -54,10 +55,11 @@ def test_status_events_scoped_to_current_session(monkeypatch, tmp_path):
     # An event from before the (later) session must not be counted.
     store.append_event("Bash", ["mass-delete"], True, "old",
                        {"tool_input": {"command": "rm -rf ~"}},
-                       timestamp="2026-08-01T00:00:00+00:00")
-    store.record_session("anchor", started_at="2026-08-28T00:00:00+00:00")
+                       timestamp="2026-08-01T00:00:00+00:00", repo_root=repo)
+    store.record_session("anchor", started_at="2026-08-28T00:00:00+00:00",
+                         repo_root=repo)
     store.append_event("Bash", [], False, "new", {"tool_input": {"command": "ls"}},
-                       timestamp="2026-08-28T00:05:00+00:00")
+                       timestamp="2026-08-28T00:05:00+00:00", repo_root=repo)
 
     data = status.build_status(repo_root=repo)
 

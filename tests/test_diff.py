@@ -26,7 +26,7 @@ def _armed_session(repo):
     """Init a shadow, take a baseline, and record it as the current session."""
     shadow, _ = snapshot.ensure_shadow(repo)
     anchor = shadow.session_baseline()
-    store.record_session(anchor)
+    store.record_session(anchor, repo_root=repo)
     return anchor
 
 

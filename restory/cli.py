@@ -120,7 +120,7 @@ def session_start() -> None:
     if created:
         typer.echo(f"Initialized shadow repo at {shadow.git_dir}")
     anchor = shadow.session_baseline()
-    session_id = store.record_session(anchor)
+    session_id = store.record_session(anchor, repo_root=shadow.repo_root)
     typer.echo(f"Session {session_id} anchored at {anchor[:12]} ({shadow.repo_root})")
 
 
@@ -141,9 +141,21 @@ def undo(
         raise typer.Exit(1)
 
     if session:
-        sess = store.latest_session()
+        sess = store.latest_session(repo_root=shadow.repo_root)
         if sess is None:
-            typer.echo("No session anchor recorded. Run `restory session-start` first.")
+            typer.echo("No session anchor recorded for this repository. Run `restory session-start` first.")
+            raise typer.Exit(1)
+        # Defense in depth: never reset this work tree to an anchor recorded for
+        # a different repository. ``latest_session`` is already scoped to this
+        # repo, so this can only fail on a corrupted/hand-edited row — in which
+        # case we hard-fail rather than guess or fall back to another session.
+        current_key = store.repo_key(shadow.repo_root)
+        if sess.get("repo_root") != current_key:
+            typer.echo(
+                "Refusing to undo: the recorded session belongs to a different "
+                f"repository ({sess.get('repo_root')!r}), not the current one "
+                f"({current_key!r})."
+            )
             raise typer.Exit(1)
         try:
             changes = shadow.undo_to(sess["anchor_commit"])
@@ -297,17 +309,30 @@ def open(
     no_browser: bool = typer.Option(False, "--no-browser", help="Do not open a browser."),
 ) -> None:
     """Start the local restory server and open the timeline UI in a browser."""
+    import secrets
     import threading
     import webbrowser
 
     import uvicorn
 
-    from .server import app as fastapi_app
+    from .config import find_repo_root
+    from .server import create_app
 
-    url = f"http://127.0.0.1:{port}/"
-    typer.echo(f"restory UI at {url} (Ctrl+C to stop)")
+    # Per-session token. It authenticates the UI's API calls and is handed to
+    # the browser in the URL *fragment* (never sent to the server, never logged).
+    token = secrets.token_urlsafe(32)
+    repo_root = find_repo_root()
+    fastapi_app = create_app(token=token, port=port, repo_root=repo_root)
+
+    # The token rides in the fragment (after '#'); the browser keeps it client
+    # side and the UI strips it from the address bar on load.
+    launch_url = f"http://127.0.0.1:{port}/#{token}"
+    display_url = f"http://127.0.0.1:{port}/"  # token-free: safe to print/log
+    typer.echo(f"restory UI at {display_url} (Ctrl+C to stop)")
     if not no_browser:
-        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+        threading.Timer(1.0, lambda: webbrowser.open(launch_url)).start()
+    # Bind strictly to loopback (never 0.0.0.0) so the server is unreachable
+    # from other hosts on the network.
     uvicorn.run(fastapi_app, host="127.0.0.1", port=port, log_level="warning")
 
 

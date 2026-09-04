@@ -64,6 +64,7 @@ def main() -> int:
             danger=result.danger,
             reason=result.reason,
             raw=raw_payload,
+            repo_root=repo_root,
         )
     except Exception as exc:  # pragma: no cover - defensive
         print(f"restory: failed to record event: {exc}", file=sys.stderr)

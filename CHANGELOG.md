@@ -5,6 +5,47 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **Locked down the local `restory open` server.** Previously any website you
+  visited while the server was running could quietly POST to
+  `127.0.0.1:<port>/api/undo` and destroy your uncommitted session work (a
+  simple-content-type request needs no CORS preflight), and could read the
+  timeline — which exposes absolute file paths and executed commands. The server
+  now:
+  - binds strictly to loopback (`127.0.0.1`, never `0.0.0.0`);
+  - mints a per-session token (`secrets.token_urlsafe(32)`) at startup, kept in
+    memory and handed to the browser out-of-band in the URL fragment (never sent
+    to the server and never written to a log); the UI keeps it in same-origin
+    `sessionStorage` (whose tab-scoped lifetime matches the per-session token and
+    leaves nothing on disk) so a plain reload keeps authenticating, while a
+    request with no token still fails closed with a `403`;
+  - requires that token in a custom `X-Restory-Token` header on **every** API
+    request — the read-only timeline included — compared with
+    `hmac.compare_digest`. A custom header also forces a CORS preflight, which is
+    itself a defense;
+  - validates the `Origin` header (a foreign origin is refused) and the `Host`
+    header (anything other than loopback is refused, which blocks DNS
+    rebinding);
+  - rejects any failure with a plain `403` that never echoes the token.
+- **Scoped every session and event to its repository.** Records now store the
+  repository root (absolute, normalized, case-folded on Windows), and every
+  command — `undo`, `report`, `diff`, `status`, `open`, `export`, `monitor` —
+  operates only on the current repo's sessions. This removes a data-loss hazard
+  where, with more than one repo sharing the store, `undo --session` could reset
+  a work tree to a baseline anchor recorded for a *different* repository;
+  `undo --session` now hard-fails with a clear message rather than ever falling
+  back to the most recent session from elsewhere. Older databases are migrated
+  automatically (the new column is added and legacy rows are left unscoped) so an
+  existing install keeps working.
+- **Isolated the shadow git repo from your global/system git config.** All
+  shadow-git subprocesses now run with `GIT_CONFIG_GLOBAL` and
+  `GIT_CONFIG_SYSTEM` pointed at the null device and with `core.hooksPath` and
+  `core.attributesFile` overridden per invocation, so external filters,
+  attributes, or hooks can neither alter nor execute during a snapshot.
+
 ## [1.0.5] - 2026-08-31
 
 ### Changed

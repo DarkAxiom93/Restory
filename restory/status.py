@@ -24,9 +24,11 @@ def _ui_index_path() -> Path:
 
 def build_status(repo_root: Path | None = None, db_path: Path | None = None) -> dict:
     """Gather the current-state snapshot (read-only)."""
-    session = store.latest_session(db_path=db_path)
+    session = store.latest_session(repo_root=repo_root, db_path=db_path)
     if session is not None:
-        events = store.fetch_events_since(session["started_at"], db_path=db_path)
+        events = store.fetch_events_since(
+            session["started_at"], repo_root=repo_root, db_path=db_path
+        )
     else:
         # Not armed: no current session, so there is nothing to count.
         events = []

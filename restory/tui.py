@@ -34,18 +34,21 @@ BLOCKED_MARKER = "⛔"
 POLL_SECONDS = 1.0
 
 
-def gather(db_path: Path | None = None) -> dict:
+def gather(db_path: Path | None = None, repo_root: Path | None = None) -> dict:
     """Read the store and shape the current session's events (pure, read-only).
 
-    When a session anchor exists, events are scoped to that session; otherwise
-    the most recent events are shown so ``monitor`` is still useful before a
-    session has been anchored. Events come back newest-first from the store.
+    Scoped to ``repo_root`` (the current repo by default). When a session anchor
+    exists, events are further scoped to that session; otherwise the most recent
+    events for the repo are shown so ``monitor`` is still useful before a session
+    has been anchored. Events come back newest-first from the store.
     """
-    session = store.latest_session(db_path=db_path)
+    session = store.latest_session(repo_root=repo_root, db_path=db_path)
     if session is not None:
-        events = store.fetch_events_since(session["started_at"], db_path=db_path)
+        events = store.fetch_events_since(
+            session["started_at"], repo_root=repo_root, db_path=db_path
+        )
     else:
-        events = store.fetch_events(limit=500, db_path=db_path)
+        events = store.fetch_events(limit=500, repo_root=repo_root, db_path=db_path)
 
     total = len(events)
     blocked = sum(1 for ev in events if ev.get("danger"))
@@ -183,7 +186,7 @@ class RestoryMonitorApp(App[None]):
 
     def _refresh(self) -> None:
         try:
-            data = gather(db_path=self._db_path)
+            data = gather(db_path=self._db_path, repo_root=self._repo_root)
         except Exception as exc:  # never let a transient store error kill the UI
             self.query_one("#statusbar", Static).update(
                 Text(f"store error: {exc}", style="bold red")
@@ -256,7 +259,7 @@ class RestoryMonitorApp(App[None]):
 
     def action_clear(self) -> None:
         """Hide currently-shown events from the view (does not touch the DB)."""
-        data = gather(db_path=self._db_path)
+        data = gather(db_path=self._db_path, repo_root=self._repo_root)
         ids = [ev.get("id") or 0 for ev in data["events"]]
         self._clear_before_id = max(ids) if ids else 0
         self._last_signature = None  # force a rebuild
@@ -284,9 +287,13 @@ class RestoryMonitorApp(App[None]):
         if not shadow.exists():
             self.notify("No shadow repo found.", severity="error", title="undo")
             return
-        sess = store.latest_session(db_path=self._db_path)
+        sess = store.latest_session(db_path=self._db_path, repo_root=self._repo_root)
         if sess is None:
-            self.notify("No session anchor recorded.", severity="error", title="undo")
+            self.notify(
+                "No session anchor recorded for this repository.",
+                severity="error",
+                title="undo",
+            )
             return
         try:
             changes = shadow.undo_to(sess["anchor_commit"])

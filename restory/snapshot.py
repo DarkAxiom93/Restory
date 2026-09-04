@@ -63,12 +63,31 @@ class Shadow:
         env["GIT_WORK_TREE"] = str(self.repo_root)
         # Deterministic, non-interactive, don't inherit the user's system config.
         env["GIT_CONFIG_NOSYSTEM"] = "1"
+        # Fully neutralize the user's global/system git config for the shadow.
+        # A hostile or merely surprising global config (filters, clean/smudge,
+        # attributes, hooksPath) must never influence — let alone execute during
+        # — a shadow snapshot. ``os.devnull`` is ``NUL`` on Windows and
+        # ``/dev/null`` on POSIX, so both files read as empty everywhere.
+        env["GIT_CONFIG_GLOBAL"] = os.devnull
+        env["GIT_CONFIG_SYSTEM"] = os.devnull
         env["GIT_TERMINAL_PROMPT"] = "0"
         env["GIT_AUTHOR_NAME"] = "restory"
         env["GIT_AUTHOR_EMAIL"] = "restory@localhost"
         env["GIT_COMMITTER_NAME"] = "restory"
         env["GIT_COMMITTER_EMAIL"] = "restory@localhost"
         return env
+
+    # Config knobs forced on *every* shadow git invocation via ``-c``. Even if a
+    # value somehow leaked in from an external config, these override it: hooks
+    # are disabled (no hook can run during a snapshot) and the attributes file
+    # is emptied (no external clean/smudge/filter attributes apply).
+    def _isolation_flags(self) -> list[str]:
+        return [
+            "-c",
+            f"core.hooksPath={os.devnull}",
+            "-c",
+            f"core.attributesFile={os.devnull}",
+        ]
 
     def _git(
         self,
@@ -83,7 +102,7 @@ class Shadow:
             # left untouched (used by read-only diffing).
             env["GIT_INDEX_FILE"] = index
         proc = subprocess.run(
-            [_git_exe(), *args],
+            [_git_exe(), *self._isolation_flags(), *args],
             cwd=str(self.repo_root),
             env=env,
             capture_output=True,

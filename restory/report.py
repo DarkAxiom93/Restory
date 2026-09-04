@@ -61,14 +61,16 @@ def build_report(events: list[dict], session: dict | None) -> dict:
     }
 
 
-def gather() -> dict:
-    """Read the store and build the report for the current/latest session."""
-    session = store.latest_session()
+def gather(repo_root=None) -> dict:
+    """Read the store and build the report for this repo's current session."""
+    session = store.latest_session(repo_root=repo_root)
     if session is not None:
-        events = store.fetch_events_since(session["started_at"])
+        events = store.fetch_events_since(
+            session["started_at"], repo_root=repo_root
+        )
     else:
-        # No session anchor recorded yet; summarize everything we have.
-        events = store.fetch_events(limit=5000)
+        # No session anchor recorded yet; summarize everything for this repo.
+        events = store.fetch_events(limit=5000, repo_root=repo_root)
     return build_report(events, session)
 
 

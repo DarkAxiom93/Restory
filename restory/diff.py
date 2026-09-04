@@ -58,7 +58,7 @@ def gather(mode: str = "full", repo_root: Path | None = None) -> dict:
     ``available`` False (plus a ``reason``) when there is no anchor or no
     changes, otherwise the parsed summary (and the patch text for ``"full"``).
     """
-    session = store.latest_session()
+    session = store.latest_session(repo_root=repo_root)
     shadow = snapshot.get_shadow(repo_root)
 
     if session is None:

@@ -84,6 +84,50 @@ def test_html_is_well_formed_and_escaped():
     _P().feed(out)
 
 
+def test_html_renders_scripted_command_as_inert_text():
+    """A crafted command/path with <script>/<img onerror> must render inert.
+
+    Event commands and paths come from intercepted tool calls and are
+    attacker-influenced. In the shared HTML artifact they must be HTML-escaped so
+    a payload becomes visible text, never live markup that executes.
+    """
+    payload_cmd = '<img src=x onerror="alert(1)"><script>alert(2)</script>'
+    payload_path_reason = "wrote <script>steal()</script> to /tmp/x"
+    data = {
+        "session": None,
+        "total_events": 1,
+        "blocked": 1,
+        "tags": {},
+        "blocked_commands": [
+            {
+                "id": 1,
+                "timestamp": "2026-08-28T12:00:00+00:00",
+                "tool_name": "Bash",
+                "command": payload_cmd,
+                "tags": [],
+                "reason": payload_path_reason,
+            }
+        ],
+    }
+
+    out = export.render(data, fmt="html", url=URL)
+
+    # The dangerous markup is escaped, not present as live tags/attributes.
+    assert "<script>alert(2)</script>" not in out
+    assert '<img src=x onerror="alert(1)">' not in out
+    assert "<script>steal()</script>" not in out
+    # It is present, but as inert escaped text.
+    assert "&lt;script&gt;alert(2)&lt;/script&gt;" in out
+    assert "&lt;img src=x onerror=" in out
+
+    # And the document is still well-formed markup after escaping.
+    class _P(HTMLParser):
+        def error(self, message):  # pragma: no cover - defensive
+            raise AssertionError(message)
+
+    _P().feed(out)
+
+
 def test_empty_session_still_renders():
     empty = {"session": None, "total_events": 0, "blocked": 0, "tags": {}, "blocked_commands": []}
     md = export.render(empty, fmt="md", url=URL)

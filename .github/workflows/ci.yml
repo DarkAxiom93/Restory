@@ -37,11 +37,29 @@ jobs:
       # no test asserts its contents), so instead of installing Node and running
       # a full `npm run build`, we drop in a tiny placeholder to satisfy the
       # packaging requirement. This keeps CI fast and free of a JS toolchain.
+      # The stub must mirror the structural shape the server-shell tests assert
+      # on (test_server.py): a <head> for the token bootstrap to be injected into
+      # and at least one bundle-style <script src=…> so the "bootstrap runs before
+      # the bundle scripts" contract can be verified. A real `npm run build`
+      # produces the same shape (head + /_next/static chunks) without a JS
+      # toolchain in CI.
       - name: Create UI placeholder (skip UI build)
         shell: bash
         run: |
           mkdir -p restory/ui/out
-          echo '<!doctype html><title>restory UI (CI test stub)</title>' > restory/ui/out/index.html
+          cat > restory/ui/out/index.html <<'HTML'
+          <!doctype html>
+          <html lang="en">
+          <head>
+          <meta charset="utf-8">
+          <title>restory UI (CI test stub)</title>
+          </head>
+          <body>
+          <div id="__next"></div>
+          <script src="/_next/static/chunks/main.js"></script>
+          </body>
+          </html>
+          HTML
 
       - name: Install package and test dependencies
         shell: bash

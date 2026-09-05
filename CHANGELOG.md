@@ -61,6 +61,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   same explicit check. Both entry points now share one guard and hard-fail
   identically, so neither can ever reset a work tree to an anchor recorded for a
   different repository.
+- CI: pinned httpx test dependency and capped starlette version range to prevent
+  dependency drift.
 
 ## [1.0.5] - 2026-08-31
 

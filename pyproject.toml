@@ -24,9 +24,24 @@ classifiers = [
 dependencies = [
     "typer>=0.12",
     "fastapi>=0.110",
+    # Cap starlette to a verified-working range. fastapi pulls starlette in
+    # transitively with only a lower bound, so an unpinned CI/install can jump to
+    # a new starlette line whose test client (used by tests/test_server.py) hard-
+    # requires a different HTTP client and breaks collection. 1.6.x is the line
+    # this release is tested against; widen deliberately, not by accident.
+    "starlette>=1.6,<1.7",
     "uvicorn>=0.29",
     "rich>=13",
     "textual>=0.60",
+]
+
+[project.optional-dependencies]
+# Test-only dependencies. httpx is the HTTP client starlette's TestClient needs;
+# it is not a runtime dependency of restory, so it lives here and is installed in
+# CI via `pip install -e ".[test]"`.
+test = [
+    "pytest>=8",
+    "httpx>=0.27",
 ]
 
 [project.urls]

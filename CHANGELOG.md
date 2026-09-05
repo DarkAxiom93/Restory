@@ -45,6 +45,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `GIT_CONFIG_SYSTEM` pointed at the null device and with `core.hooksPath` and
   `core.attributesFile` overridden per invocation, so external filters,
   attributes, or hooks can neither alter nor execute during a snapshot.
+
+## [1.0.7] - 2026-09-05
+
+### Security
+
 - **Stopped attacker-influenced command text from injecting live Markdown into
   exported reports.** A `restory export` Markdown table renders each recorded
   command inside a `` `…` `` code span, but command text is attacker-influenced
@@ -61,8 +66,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   same explicit check. Both entry points now share one guard and hard-fail
   identically, so neither can ever reset a work tree to an anchor recorded for a
   different repository.
-- CI: pinned httpx test dependency and capped starlette version range to prevent
-  dependency drift.
+
+### Changed
+
+- Clarified in the README ("What restory does NOT do") that the Read tool is not
+  covered by restory's interception.
+
+### CI
+
+- Pinned the httpx test dependency and capped the starlette version range to
+  prevent transitive dependency drift, and made the UI test stub structurally
+  faithful (a `<head>` bootstrap plus a `/_next/static` bundle script) so the
+  server-shell tests pass on every runner.
 
 ## [1.0.5] - 2026-08-31
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "restory"
-version = "1.0.6"
+version = "1.0.7"
 description = "Local-first guardrails for AI coding agents: block dangerous commands, record a timeline, and roll back a session."
 readme = "README.md"
 requires-python = ">=3.10"

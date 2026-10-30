@@ -218,6 +218,38 @@ def test_bootstrap_runs_before_bundle_and_persists_token(monkeypatch, tmp_path):
     assert "window.__RESTORY_TOKEN__" in html
 
 
+def test_every_api_route_is_guarded_without_a_token(monkeypatch, tmp_path):
+    """Enumerate the app's real routes and prove EVERY ``/api/*`` one fails closed.
+
+    This is deliberately introspective rather than a hand-listed set: any future
+    ``/api/*`` route (a stats endpoint, etc.) that is added without going through
+    the token+Origin+Host guard will make this test fail. A request with a
+    loopback Host/Origin but NO token must get a 403 on each API route, for every
+    method it accepts (except HEAD/OPTIONS, which are transport-level).
+    """
+    app, _ = _setup(monkeypatch, tmp_path)
+    client = TestClient(app, base_url=GOOD_BASE)
+
+    api_calls = []
+    for route in app.routes:
+        path = getattr(route, "path", "")
+        if not path.startswith("/api/"):
+            continue
+        for method in sorted(getattr(route, "methods", set()) or set()):
+            if method in {"HEAD", "OPTIONS"}:
+                continue
+            api_calls.append((method, path))
+
+    # There is at least one API route, and we actually exercised it.
+    assert api_calls, "no /api/* routes discovered on the app"
+
+    for method, path in api_calls:
+        resp = client.request(method, path)  # correct Host/Origin, but no token
+        assert resp.status_code == 403, f"{method} {path} was not guarded: {resp.status_code}"
+        # An error response must never echo the session token back.
+        assert TOKEN not in resp.text, f"{method} {path} leaked the token"
+
+
 # =========================================================================== #
 # Functional coverage: events shaping, undo paths, static serving
 #

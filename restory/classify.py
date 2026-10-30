@@ -50,6 +50,9 @@ _NET_VERBS = {
 
 _ENCODE_CMDS = {"base64", "xxd"}
 
+# Flags that put ``base64`` into decode mode (BSD ``-D`` included).
+_BASE64_DECODE_FLAGS = {"-d", "--decode", "-D"}
+
 _DELETE_CMDS = {"rm", "remove-item", "ri", "del", "erase", "rmdir", "rd"}
 
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"}
@@ -99,6 +102,7 @@ _MAX_SUBST_DEPTH = 4
 # Tag → reason priority (most severe first).
 _TAG_PRIORITY = (
     "pipe-to-shell",
+    "obfuscated-eval",
     "uninspectable",
     "mass-delete",
     "git-hook-write",
@@ -505,6 +509,69 @@ def _detect_pipe_to_shell(command: str) -> str | None:
     return None
 
 
+def _is_base64_decode(tokens: list[str]) -> bool:
+    """True if ``tokens`` invoke ``base64`` in decode mode."""
+    if not tokens or _basename_cmd(tokens[0]) != "base64":
+        return False
+    return any(t in _BASE64_DECODE_FLAGS for t in tokens[1:])
+
+
+def _command_decodes_base64(command: str) -> bool:
+    """True if any pipeline stage of ``command`` is a ``base64`` decode."""
+    return any(_is_base64_decode(_tokenize(stage)) for stage in _split_on_pipe(command))
+
+
+def _detect_obfuscated_eval(command: str) -> str | None:
+    """Flag a base64-decoded blob that is then executed.
+
+    Two shapes are caught: a ``base64 -d`` stage whose output is piped into a
+    shell, and a command substitution that decodes base64 feeding ``eval`` or a
+    shell (``eval "$(echo ... | base64 -d)"``). We deliberately do not decode
+    the blob — executing an opaque decoded payload is itself the danger signal.
+    """
+    # A decoded blob piped straight into a shell stage.
+    stages = _split_on_pipe(command)
+    for idx, stage in enumerate(stages[:-1]):
+        if _is_base64_decode(_tokenize(stage)):
+            nxt = _tokenize(stages[idx + 1])
+            if nxt and _basename_cmd(nxt[0]) in _SHELL_CMDS:
+                return "obfuscated-eval: base64-decoded output piped into a shell"
+
+    # A decoded blob command-substituted into eval or a shell.
+    for segment in _split_segments(command):
+        tokens = _tokenize(segment)
+        if not tokens:
+            continue
+        cmd = _basename_cmd(tokens[0])
+        if cmd == "eval" or cmd in _SHELL_CMDS:
+            inners, _ = _extract_substitutions(segment)
+            if any(_command_decodes_base64(inner) for inner in inners):
+                return "obfuscated-eval: eval/shell executes a base64-decoded blob"
+    return None
+
+
+def _extract_dash_c_body(segment: str) -> tuple[str | None, bool, bool]:
+    """Return ``(body, parseable, has_c)`` for a ``sh``/``bash -c <body>`` call.
+
+    ``body`` is the string argument that follows ``-c`` (the code the nested
+    shell would run), or ``None`` when there is no such argument. ``has_c`` is
+    True when a ``-c`` flag is present at all. ``parseable`` is False when the
+    segment's quoting is malformed and the argument cannot be reliably
+    recovered — in which case ``has_c`` reflects a best-effort naive split.
+    """
+    try:
+        tokens = shlex.split(segment, posix=True)
+        parseable = True
+    except ValueError:
+        tokens = segment.split()
+        parseable = False
+    for idx in range(1, len(tokens)):
+        if tokens[idx] == "-c":
+            body = tokens[idx + 1] if idx + 1 < len(tokens) else None
+            return body, parseable, True
+    return None, parseable, False
+
+
 def _detect_interpreter_oneliner(cmd: str, tokens: list[str]) -> str | None:
     """Flag ``python -c`` / ``node -e`` / ``perl -e`` one-liners whose inline
     body performs a delete or network operation (statically uninspectable)."""
@@ -577,6 +644,10 @@ def _process_command(command: str, repo_root: Path, add, depth: int) -> None:
     if r:
         add("pipe-to-shell", r)
 
+    r = _detect_obfuscated_eval(command)
+    if r:
+        add("obfuscated-eval", r)
+
     for segment in _split_segments(command):
         tokens = _tokenize(segment)
         if not tokens:
@@ -595,6 +666,19 @@ def _process_command(command: str, repo_root: Path, add, depth: int) -> None:
             for inner in inners:
                 if inner.strip():
                     _process_command(inner, repo_root, add, depth + 1)
+
+            # Nested shell string: recursively classify the `-c` argument so
+            # `bash -c "rm -rf ~"` surfaces as mass-delete. A malformed quote
+            # means the body cannot be recovered -> uninspectable.
+            if cmd in _SHELL_CMDS:
+                body, parseable, has_c = _extract_dash_c_body(segment)
+                if has_c and not parseable:
+                    add(
+                        "uninspectable",
+                        "uninspectable: nested shell -c string could not be parsed",
+                    )
+                elif body and body.strip():
+                    _process_command(body, repo_root, add, depth + 1)
 
         r = _detect_mass_delete(cmd, tokens, segment, repo_root)
         if r:

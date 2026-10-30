@@ -35,3 +35,5 @@ docs/demo-old.gif
 .coverage
 coverage.xml
 htmlcov/
+
+.pytest-tmp2/

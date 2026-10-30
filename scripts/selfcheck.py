@@ -313,6 +313,9 @@ DANGEROUS = [
     ("git-hook-write (redirect into .git/hooks)", "Bash", {"command": "echo pwn > .git/hooks/pre-commit"}, "git-hook-write"),
     # write-outside-repo uses a fixed absolute path known to be outside the temp repo
     ("write-outside-repo (Write outside root)", "Write", {"file_path": "C:/Windows/System32/evil.dll"}, "write-outside-repo"),
+    # Formerly BYPASS-AWARENESS gaps, now caught statically by the classifier:
+    ("obfuscated-eval (base64 -d behind eval)", "Bash", {"command": 'eval "$(echo cm0gLXJmIH4= | base64 -d)"'}, "obfuscated-eval"),
+    ("nested shell string (bash -c \"rm -rf ~\")", "Bash", {"command": 'bash -c "rm -rf ~"'}, "mass-delete"),
 ]
 
 SAFE = [
@@ -324,11 +327,10 @@ SAFE = [
 ]
 
 # Obfuscated payloads that are EXPECTED to slip past the static classifier.
-# Both decode to `rm -rf ~`; the undo/shadow net is what actually protects here.
-KNOWN_GAPS = [
-    ('base64-encoded rm behind eval', {"command": 'eval "$(echo cm0gLXJmIH4= | base64 -d)"'}),
-    ('nested shell string (bash -c "rm -rf ~")', {"command": 'bash -c "rm -rf ~"'}),
-]
+# The base64-behind-eval and nested-shell-string cases that used to live here
+# are now caught statically (see the SECURITY list above); anything that lands
+# here in future is protected by the undo/shadow net rather than the classifier.
+KNOWN_GAPS: list[tuple[str, dict]] = []
 
 
 def category_security(rep: Report, base: list[str], env: dict, repo: Path) -> None:

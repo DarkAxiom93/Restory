@@ -15,10 +15,13 @@ core never has to know which agent it is serving:
 * ``render_decision`` — restory verdict -> agent decision object (outbound)
 * ``install``         — write the agent's hook-config file
 * ``matches``         — recognise the agent from an incoming payload
+* ``detect``          — is this agent installed on *this* machine? (for ``--all``)
 
 Adding a new agent (Cursor, Windsurf, opencode, ...) is one more ``Adapter``
 subclass plus a line in :data:`_ADAPTERS`; ``classify``/``store``/``snapshot``
-stay untouched.
+stay untouched. Because ``restory init --all`` iterates the registry and asks
+each adapter to ``detect`` itself, a newly registered adapter is automatically
+included in ``--all`` with no other change.
 """
 
 from __future__ import annotations
@@ -28,6 +31,8 @@ import shlex
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+
+from . import config
 
 # Canonical tool names restory's classifier understands.
 CANONICAL_MUTATING = ("Bash", "Write", "Edit", "MultiEdit")
@@ -181,10 +186,43 @@ class Adapter:
     key: str = ""  # value accepted by ``restory init --agent``
     label: str = ""  # human-readable name for CLI output
 
+    # Presence signals used by the default :meth:`detect` heuristic. An adapter
+    # that ships a per-project/per-user config directory names it here (checked
+    # in the user's home *and* the repo root), plus any CLI executables that,
+    # when found on PATH, prove the agent is installed. An adapter with a wholly
+    # different signal (a registry key, a plugin manifest, ...) overrides
+    # :meth:`detect` instead.
+    config_dirname: str = ""
+    executables: tuple[str, ...] = ()
+
     @classmethod
     def matches(cls, payload: dict) -> bool:
         """True if ``payload`` was emitted by this agent (for auto-detection)."""
         raise NotImplementedError
+
+    def detect(self) -> bool:
+        """True if this agent appears to be installed on the current machine.
+
+        Default heuristic: a directory named :attr:`config_dirname` exists in
+        the user's home directory or in the current repo root, or one of
+        :attr:`executables` resolves on ``PATH``. Subclasses with a different
+        way of proving presence override this method; ``restory init --all``
+        only ever calls ``detect`` — it never inspects these attributes — so a
+        custom override slots in transparently.
+
+        Detection is driven *entirely* by three mockable seams so that tests
+        (and callers) can isolate it fully: :func:`config.home_dir` (the config
+        dir in ``$USERPROFILE``/home), :func:`config.find_repo_root` (the config
+        dir in the repo root), and :func:`shutil.which` (the executable on
+        ``PATH``). It never touches the real filesystem except through these —
+        in particular it does not walk the tree on its own, so mocking the
+        seams above completely determines the result.
+        """
+        if self.config_dirname:
+            probe_roots = (config.home_dir(), config.find_repo_root())
+            if any((root / self.config_dirname).is_dir() for root in probe_roots):
+                return True
+        return any(shutil.which(exe) for exe in self.executables)
 
     def normalize(self, payload: dict) -> dict:
         """Agent payload -> canonical ``{tool_name, tool_input, cwd, hook_event_name}``."""
@@ -209,6 +247,9 @@ class Adapter:
 class ClaudeAdapter(Adapter):
     key = "claude"
     label = "Claude Code"
+
+    config_dirname = ".claude"
+    executables = ("claude",)
 
     _MATCHER = "Bash|Write|Edit|MultiEdit"
 
@@ -262,6 +303,9 @@ class GeminiAdapter(Adapter):
 
     key = "gemini"
     label = "Gemini CLI"
+
+    config_dirname = ".gemini"
+    executables = ("gemini",)
 
     _MATCHER = "run_shell_command|write_file|replace"
 
@@ -425,6 +469,20 @@ _ADAPTERS: dict[str, Adapter] = {
 def agent_keys() -> list[str]:
     """Return the accepted ``--agent`` values (default first)."""
     return list(_ADAPTERS)
+
+
+def all_adapters() -> list[Adapter]:
+    """Return every registered adapter (default first)."""
+    return list(_ADAPTERS.values())
+
+
+def detect_present_adapters() -> list[Adapter]:
+    """Return the registered adapters that ``detect`` themselves as installed.
+
+    Generic over the registry: each adapter decides its own presence, so a
+    future adapter is picked up by ``restory init --all`` with no change here.
+    """
+    return [adapter for adapter in _ADAPTERS.values() if adapter.detect()]
 
 
 def get_adapter(key: str) -> Adapter:

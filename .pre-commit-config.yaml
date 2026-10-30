@@ -1,0 +1,25 @@
+# Pre-commit hooks for restory's own development.
+# Install:  pip install pre-commit && pre-commit install
+# Run all:  pre-commit run --all-files
+#
+# The exported Next.js UI and vendored deps under restory/ui are build
+# artifacts / third-party code, so they're excluded from these hooks.
+exclude: '^restory/ui/'
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.6
+    hooks:
+      # Lint (autofix what it safely can).
+      - id: ruff
+        args: [--fix]
+      # Format.
+      - id: ruff-format

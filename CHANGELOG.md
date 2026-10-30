@@ -5,6 +5,50 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-10-30
+
+A feature release folding in six parallel branches. All 1.0.x security
+behavior is preserved: the token + Origin/Host middleware on every `/api/*`
+route, per-repo session scoping, shadow-git config isolation, Markdown
+backtick escaping, and the shared `session_repo_mismatch` guard.
+
+### Added
+
+- **Severity levels (WARN / BLOCK / CRITICAL).** Every intercepted command now
+  carries a severity, surfaced in the block reason shown to the agent, a new
+  column in the TUI and browser timelines, and the report/export. `WARN` is an
+  opt-in, per-tag "approve but still record" level; default blocks are
+  unchanged — a blocking tag always blocks.
+- **Expanded classifier.** New danger classes: symlink attacks, permission
+  changes (`chmod`/`chown`), download-and-execute, shell-config tampering
+  (`~/.bashrc` and friends), and persistence (`crontab`/`schtasks`/`at`).
+- **Experimental Cursor support.** A native Cursor adapter (`preToolUse`,
+  `permission: deny`) alongside the existing Claude Code and Gemini adapters.
+- **User allowlist.** An exact-command, user-directory-only carve-out that
+  approves a specific command while still recording it with an audited
+  `allowlisted-override` tag. The classifier itself is never weakened — only
+  the decision is overridden, and only on an exact match read from the user's
+  own directory (never the repo).
+- **Browser timeline: filtering, search, and expandable event details**, plus a
+  collapsible **session statistics panel** — totals, blocked rate, a breakdown
+  by danger class and severity, and an activity sparkline.
+- **TUI monitor upgrades.** Filtering, sorting, search, and expandable event
+  details in `restory monitor`.
+- **Optional desktop notifications on a BLOCK**, opt-in via `RESTORY_NOTIFY=1`
+  (real WinRT toasts via `windows-toasts` on Windows, `plyer` elsewhere). Absent
+  the backend, notifications no-op; approvals are always silent.
+- **`restory init --all`** detects every supported agent installed on the system
+  and installs hooks for all of them in a single run.
+- **CI**: coverage measurement with a self-contained badge, a packaging job that
+  verifies the exported UI is bundled in the wheel, and a pre-commit config.
+
+### Security
+
+- **Closed two known classifier bypass gaps**: base64-decoded blobs executed
+  behind `eval`, and nested shell strings (`bash -c "…"`). The self-check now
+  reports 49/49 with **zero** known gaps (previously 33/33 with 2 gaps caught
+  only by the undo safety net).
+
 ## [1.0.6] - 2026-09-03
 
 ### Security

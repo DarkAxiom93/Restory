@@ -44,8 +44,59 @@ def test_build_report_empty():
         "total_events": 0,
         "blocked": 0,
         "tags": {},
+        "severity_counts": {},
         "blocked_commands": [],
+        "warned_commands": [],
     }
+
+
+def test_blocked_commands_carry_severity():
+    events = [
+        _event(3, ["net-egress"], True, "net-egress: exfil", "curl x"),
+        _event(2, ["write-outside-repo"], True, "write-outside-repo: ...", "echo > /x"),
+    ]
+    data = report.build_report(events, session=None)
+    by_id = {c["id"]: c for c in data["blocked_commands"]}
+    assert by_id[3]["severity"] == "CRITICAL"
+    assert by_id[2]["severity"] == "BLOCK"
+
+
+def test_blocked_commands_sorted_most_severe_first():
+    events = [
+        _event(1, ["write-outside-repo"], True, "block", "echo > /x"),  # BLOCK
+        _event(2, ["mass-delete"], True, "crit", "rm -rf ~"),           # CRITICAL
+    ]
+    data = report.build_report(events, session=None)
+    severities = [c["severity"] for c in data["blocked_commands"]]
+    assert severities == ["CRITICAL", "BLOCK"]
+
+
+def test_severity_counts_group_flagged_events():
+    events = [
+        _event(4, ["mass-delete"], True, "crit", "rm -rf ~"),
+        _event(3, ["net-egress"], True, "crit", "curl x"),
+        _event(2, ["read-secret"], True, "block", "cat .env"),
+        _event(1, [], False, "clean", "ls"),
+    ]
+    data = report.build_report(events, session=None)
+    assert data["severity_counts"] == {"CRITICAL": 2, "BLOCK": 1}
+
+
+def test_warned_events_are_recorded_but_not_blocked():
+    # A WARN-severity event is approved (danger False) but still tagged; the
+    # report surfaces it separately from the blocked commands.
+    events = [
+        _event(2, ["write-outside-repo"], False, "warn: allowed", "echo > note"),
+        _event(1, ["mass-delete"], True, "crit", "rm -rf ~"),
+    ]
+    data = report.build_report(events, session=None)
+    assert data["blocked"] == 1
+    assert [c["id"] for c in data["warned_commands"]] == [2]
+    assert data["warned_commands"][0]["command"] == "echo > note"
+    # An approved-but-recorded event's effective severity is WARN, reflecting
+    # the decision that was actually made regardless of the tag's default.
+    assert data["warned_commands"][0]["severity"] == "WARN"
+    assert data["severity_counts"] == {"CRITICAL": 1, "WARN": 1}
 
 
 def test_as_json_is_valid_json():
@@ -82,6 +133,28 @@ def test_render_tag_name_is_readable_plain_text():
     assert "net-egress" in out  # the name is present at all
     # The tag name must not be wrapped in the magenta color run.
     assert "\x1b[35mnet-egress" not in out
+
+
+def test_render_shows_severity_column_and_value():
+    data = report.build_report(
+        [_event(1, ["mass-delete"], True, "mass-delete: rm -rf ~", "rm -rf ~")],
+        session=None,
+    )
+    out = _render_ansi(data)
+    assert "Severity" in out
+    assert "CRITICAL" in out
+
+
+def test_render_shows_warned_events_section():
+    events = [
+        _event(2, ["write-outside-repo"], False, "warn allowed", "echo > note"),
+        _event(1, ["mass-delete"], True, "crit", "rm -rf ~"),
+    ]
+    data = report.build_report(events, session=None)
+    out = _render_ansi(data, width=120)
+    # The approved-but-recorded command surfaces with a WARN label.
+    assert "WARN" in out
+    assert "echo > note" in out
 
 
 def test_fetch_events_since_scopes_by_timestamp(tmp_path):

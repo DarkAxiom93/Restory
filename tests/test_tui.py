@@ -373,6 +373,38 @@ def test_search_composes_with_blocked_only(monkeypatch, tmp_path):
     asyncio.run(scenario())
 
 
+def test_monitor_shows_severity_and_flags_warned_events(monkeypatch, tmp_path):
+    repo = _isolate(monkeypatch, tmp_path)
+    store.record_session("anchor", started_at="2026-08-28T00:00:00+00:00",
+                         repo_root=repo)
+    # A blocked CRITICAL event.
+    store.append_event("Bash", ["mass-delete"], True, "mass-delete: rm -rf ~",
+                       {"tool_input": {"command": "rm -rf ~"}},
+                       timestamp="2026-08-28T00:01:00+00:00", repo_root=repo)
+    # An approved-but-recorded (WARN) event: has a tag but danger is False.
+    store.append_event("Write", ["write-outside-repo"], False, "allowed by policy",
+                       {"tool_input": {"file_path": "../scratch.txt"}},
+                       timestamp="2026-08-28T00:02:00+00:00", repo_root=repo)
+
+    async def scenario() -> None:
+        app = tui.RestoryMonitorApp(repo_root=repo)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = app.query_one("#events")
+            cells = [
+                str(table.get_cell_at((r, c)))
+                for r in range(table.row_count)
+                for c in range(len(table.columns))
+            ]
+            blob = " ".join(cells)
+            assert "CRITICAL" in blob
+            assert "WARN" in blob
+            # The WARN event is flagged, not silently shown as "ok".
+            assert tui.FLAGGED_MARKER in blob
+
+    asyncio.run(scenario())
+
+
 def test_help_overlay_opens_and_closes(monkeypatch, tmp_path):
     _isolate(monkeypatch, tmp_path)
     _seed_mixed_session(store, tmp_path / "repo")

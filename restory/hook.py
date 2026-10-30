@@ -118,7 +118,18 @@ def main() -> int:
         except Exception as exc:  # pragma: no cover - defensive
             print(f"restory: snapshot failed: {exc}", file=sys.stderr)
 
-    decision = adapter.render_decision(danger, reason)
+    # Surface the severity in the block reason the agent shows the user, e.g.
+    # ``[CRITICAL] mass-delete: ...``. The stored reason (above) stays clean so
+    # the report/timeline can render severity in its own column. This operates on
+    # the post-allowlist decision: an allowlisted override has danger=False here,
+    # so it is approved and correctly carries no severity prefix. The block
+    # decision itself still comes from ``danger`` (classification, then the
+    # allowlist carve-out) — severity only decorates the displayed reason.
+    display_reason = reason
+    if danger and result.severity:
+        display_reason = f"[{result.severity}] {reason}"
+
+    decision = adapter.render_decision(danger, display_reason)
 
     sys.stdout.write(json.dumps(decision))
     sys.stdout.write("\n")

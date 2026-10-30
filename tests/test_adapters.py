@@ -4,15 +4,25 @@ from __future__ import annotations
 
 import io
 import json
+import shlex
+from pathlib import Path
 
 from restory import adapters, hook
 
 
 def _isolate_home(monkeypatch, tmp_path):
-    """Point restory's data dir (event store) at an isolated home."""
+    """Point restory's data dir and the user-home notion at an isolated dir.
+
+    Sets BOTH ``USERPROFILE`` (what ``config.home_dir()`` prefers) and ``HOME``
+    (what ``Path.home()`` reads on POSIX) so the isolation holds on every OS.
+    Setting only ``USERPROFILE`` left ``Path.home()`` pointing at the real home
+    on Linux, which is how the Cursor home-delete test passed on Windows but
+    allowed the delete on Linux.
+    """
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("HOME", str(home))
 
 
 # --------------------------------------------------------------------------- #
@@ -513,3 +523,105 @@ def test_hook_allows_safe_cursor_shell_payload(monkeypatch, tmp_path, capsys):
         },
     )
     assert decision == {"permission": "allow"}
+
+
+# --------------------------------------------------------------------------- #
+# Cross-OS regression guard for the Linux-only home/path gap.
+#
+# The classifier's "is this deleting home?" check used bare ``Path.home()``,
+# which ignores an overridden home (``USERPROFILE``) on POSIX. That made a
+# dangerous home-delete via Cursor's native Delete blocked on Windows but
+# ALLOWED on Linux. These tests pin the delete/write-outside-repo decision for
+# every agent's native tool, and run identically on every OS: ``_isolate_home``
+# sets both ``USERPROFILE`` and ``HOME``, and all paths are built from the
+# running OS (``tmp_path`` / ``Path.home()``), never a hardcoded ``C:/...``.
+# --------------------------------------------------------------------------- #
+
+
+def test_hook_blocks_cursor_delete_of_real_os_home(monkeypatch, tmp_path, capsys):
+    """Case (b): a payload built from the running OS's REAL ``Path.home()`` — not
+    an isolated one — must be denied on every OS. Nothing is deleted: a PreToolUse
+    block is returned before the command could run."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    decision = _run_hook(
+        monkeypatch,
+        capsys,
+        {
+            "tool_name": "Delete",
+            "tool_input": {"file_path": str(Path.home())},
+            "cwd": str(repo),
+            "hook_event_name": "preToolUse",
+        },
+    )
+    assert decision["permission"] == "deny"
+    assert "mass-delete" in decision["agent_message"]
+
+
+def test_home_delete_is_blocked_for_every_native_tool_cross_os(monkeypatch, tmp_path, capsys):
+    """Deleting the (isolated) home via Claude Bash, Gemini shell, or Cursor
+    Delete is blocked — on Windows and Linux alike."""
+    _isolate_home(monkeypatch, tmp_path)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    home = str(tmp_path / "home")
+
+    # Claude: Bash rm of home. Non-recursive on purpose, so the block comes from
+    # recognizing the *target* as home (the fixed path), not from an -r flag.
+    d = _run_hook(monkeypatch, capsys, {
+        "tool_name": "Bash",
+        "tool_input": {"command": f"rm {shlex.quote(home)}"},
+        "cwd": str(repo), "hook_event_name": "PreToolUse"})
+    assert d["decision"] == "block"
+    assert "mass-delete" in d["reason"]
+
+    # Gemini: run_shell_command rm of home (non-recursive, same reason).
+    d = _run_hook(monkeypatch, capsys, {
+        "tool_name": "run_shell_command",
+        "tool_input": {"command": f"rm {shlex.quote(home)}"},
+        "cwd": str(repo), "hook_event_name": "BeforeTool"})
+    assert d["decision"] == "block"
+    assert "mass-delete" in d["reason"]
+
+    # Cursor: native Delete of home.
+    d = _run_hook(monkeypatch, capsys, {
+        "tool_name": "Delete",
+        "tool_input": {"file_path": home},
+        "cwd": str(repo), "hook_event_name": "preToolUse"})
+    assert d["permission"] == "deny"
+    assert "mass-delete" in d["agent_message"]
+
+
+def test_write_outside_repo_is_blocked_for_every_native_tool_cross_os(monkeypatch, tmp_path, capsys):
+    """Writing to an absolute path outside the repo is blocked for every agent's
+    native write tool, on every OS. The target is built from ``tmp_path`` (truly
+    absolute on the running OS), never a hardcoded ``C:/...`` that is only
+    absolute on Windows."""
+    _isolate_home(monkeypatch, tmp_path)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    outside = str(tmp_path / "evil.dll")  # absolute, outside the repo root
+
+    # Claude: Write outside the repo.
+    d = _run_hook(monkeypatch, capsys, {
+        "tool_name": "Write",
+        "tool_input": {"file_path": outside},
+        "cwd": str(repo), "hook_event_name": "PreToolUse"})
+    assert d["decision"] == "block"
+    assert "write-outside-repo" in d["reason"]
+
+    # Gemini: write_file outside the repo (normalizes to Write).
+    d = _run_hook(monkeypatch, capsys, {
+        "tool_name": "write_file",
+        "tool_input": {"file_path": outside},
+        "cwd": str(repo), "hook_event_name": "BeforeTool"})
+    assert d["decision"] == "block"
+    assert "write-outside-repo" in d["reason"]
+
+    # Cursor: native Write outside the repo.
+    d = _run_hook(monkeypatch, capsys, {
+        "tool_name": "Write",
+        "tool_input": {"file_path": outside},
+        "cwd": str(repo), "hook_event_name": "preToolUse"})
+    assert d["permission"] == "deny"
+    assert "write-outside-repo" in d["agent_message"]

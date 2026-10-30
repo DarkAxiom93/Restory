@@ -17,7 +17,7 @@ from fnmatch import fnmatch
 from pathlib import Path
 from urllib.parse import urlparse
 
-from .config import find_repo_root
+from .config import find_repo_root, home_dir
 
 # --------------------------------------------------------------------------- #
 # Result type
@@ -602,7 +602,13 @@ def _classify_delete_target(token: str, repo_root: Path) -> str | None:
     if resolved == repo_root.resolve():
         return "repository root"
     try:
-        if resolved == Path.home().resolve():
+        # Use restory's own notion of the user's home (``USERPROFILE`` when set,
+        # else ``Path.home()``), the SAME resolver config/store use — so "is this
+        # deleting home?" and "where does restory store data?" never disagree.
+        # Bare ``Path.home()`` ignores ``USERPROFILE`` on POSIX, which made this
+        # check miss an isolated/overridden home on Linux while catching it on
+        # Windows (the exact Linux-only gap this replaces).
+        if resolved == home_dir().resolve():
             return "home directory"
     except (OSError, ValueError):
         pass

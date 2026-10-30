@@ -35,6 +35,12 @@ import sys
 import tempfile
 from pathlib import Path
 
+# An absolute path guaranteed to be OUTSIDE the temp repo on the RUNNING OS.
+# A hardcoded ``C:/...`` is not absolute on POSIX — it resolves *inside* the
+# repo there, so the write-outside-repo checks would silently pass on Linux
+# while meaning nothing. Pick a real absolute out-of-repo path per OS.
+_OUTSIDE_REPO_PATH = "C:/Windows/System32/evil.dll" if os.name == "nt" else "/opt/evil.dll"
+
 # --------------------------------------------------------------------------- #
 # Terminal helpers (color + unicode, degrading gracefully on legacy consoles)
 # --------------------------------------------------------------------------- #
@@ -325,7 +331,7 @@ DANGEROUS = [
     ("git-destructive (push --force)", "Bash", {"command": "git push --force"}, "git-destructive"),
     ("git-hook-write (redirect into .git/hooks)", "Bash", {"command": "echo pwn > .git/hooks/pre-commit"}, "git-hook-write"),
     # write-outside-repo uses a fixed absolute path known to be outside the temp repo
-    ("write-outside-repo (Write outside root)", "Write", {"file_path": "C:/Windows/System32/evil.dll"}, "write-outside-repo"),
+    ("write-outside-repo (Write outside root)", "Write", {"file_path": _OUTSIDE_REPO_PATH}, "write-outside-repo"),
     # Formerly BYPASS-AWARENESS gaps, now caught statically by the classifier:
     ("obfuscated-eval (base64 -d behind eval)", "Bash", {"command": 'eval "$(echo cm0gLXJmIH4= | base64 -d)"'}, "obfuscated-eval"),
     ("nested shell string (bash -c \"rm -rf ~\")", "Bash", {"command": 'bash -c "rm -rf ~"'}, "mass-delete"),
@@ -613,7 +619,7 @@ def category_adapters(rep: Report, base: list[str], env: dict, repo: Path) -> No
         # Gemini write_file must normalize to Write and block a write outside repo.
         payload = {
             "tool_name": "write_file",
-            "tool_input": {"file_path": "C:/Windows/System32/evil.dll"},
+            "tool_input": {"file_path": _OUTSIDE_REPO_PATH},
             "cwd": str(repo),
             "hook_event_name": "BeforeTool",
         }

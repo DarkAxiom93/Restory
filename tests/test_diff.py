@@ -109,7 +109,8 @@ def test_diff_is_read_only(monkeypatch, tmp_path):
 def test_diff_no_shadow(monkeypatch, tmp_path):
     """A recorded session but no shadow repo reports the no-shadow reason."""
     repo = _isolate(monkeypatch, tmp_path)
-    store.record_session("anchor", started_at="2026-08-28T00:00:00+00:00")
+    store.record_session("anchor", started_at="2026-08-28T00:00:00+00:00",
+                         repo_root=repo)
     data = diff.gather(repo_root=repo)
     assert data["available"] is False
     assert data["reason"] == "no-shadow"

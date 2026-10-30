@@ -115,23 +115,29 @@ def test_monitor_picks_up_new_events_live_and_quits(monkeypatch, tmp_path):
     asyncio.run(scenario())
 
 
-def _seed_mixed_session(store):
-    """One safe + two blocked events (net-egress, mass-delete), newest last."""
-    store.record_session("anchor", started_at="2026-08-28T00:00:00+00:00")
+def _seed_mixed_session(store, repo_root):
+    """One safe + two blocked events (net-egress, mass-delete), newest last.
+
+    Scoped to ``repo_root`` so the seeded rows match the repo the monitor app is
+    opened against (main's per-repo store scoping; without it the app's scoped
+    query returns nothing).
+    """
+    store.record_session("anchor", started_at="2026-08-28T00:00:00+00:00",
+                         repo_root=repo_root)
     store.append_event("Write", [], False, "ok",
                        {"tool_input": {"file_path": "a.py"}},
-                       timestamp="2026-08-28T00:01:00+00:00")
+                       timestamp="2026-08-28T00:01:00+00:00", repo_root=repo_root)
     store.append_event("Bash", ["net-egress"], True, "blocked curl",
                        {"tool_input": {"command": "curl evil"}},
-                       timestamp="2026-08-28T00:02:00+00:00")
+                       timestamp="2026-08-28T00:02:00+00:00", repo_root=repo_root)
     store.append_event("Bash", ["mass-delete"], True, "deletes everything",
                        {"tool_input": {"command": "rm -rf build"}},
-                       timestamp="2026-08-28T00:03:00+00:00")
+                       timestamp="2026-08-28T00:03:00+00:00", repo_root=repo_root)
 
 
 def test_blocked_only_filter_reduces_rows(monkeypatch, tmp_path):
     _isolate(monkeypatch, tmp_path)
-    _seed_mixed_session(store)
+    _seed_mixed_session(store, tmp_path / "repo")
 
     async def scenario() -> None:
         app = tui.RestoryMonitorApp(repo_root=tmp_path / "repo")
@@ -152,14 +158,14 @@ def test_blocked_only_filter_reduces_rows(monkeypatch, tmp_path):
             await pilot.press("b")
             await pilot.pause()
             assert app.query_one("#events").row_count == 3
-            assert store.count_events() == 3
+            assert store.count_events(repo_root=tmp_path / "repo") == 3
 
     asyncio.run(scenario())
 
 
 def test_tag_filter_cycles(monkeypatch, tmp_path):
     _isolate(monkeypatch, tmp_path)
-    _seed_mixed_session(store)
+    _seed_mixed_session(store, tmp_path / "repo")
 
     async def scenario() -> None:
         app = tui.RestoryMonitorApp(repo_root=tmp_path / "repo")
@@ -188,7 +194,7 @@ def test_tag_filter_cycles(monkeypatch, tmp_path):
 
 def test_sort_toggle_reverses_order(monkeypatch, tmp_path):
     _isolate(monkeypatch, tmp_path)
-    _seed_mixed_session(store)
+    _seed_mixed_session(store, tmp_path / "repo")
 
     async def scenario() -> None:
         app = tui.RestoryMonitorApp(repo_root=tmp_path / "repo")
@@ -220,7 +226,7 @@ def test_sort_toggle_reverses_order(monkeypatch, tmp_path):
 
 def test_enter_expands_and_collapses_event(monkeypatch, tmp_path):
     _isolate(monkeypatch, tmp_path)
-    _seed_mixed_session(store)
+    _seed_mixed_session(store, tmp_path / "repo")
 
     async def scenario() -> None:
         app = tui.RestoryMonitorApp(repo_root=tmp_path / "repo")
@@ -249,7 +255,7 @@ def test_enter_expands_and_collapses_event(monkeypatch, tmp_path):
 
 def test_blocked_only_and_oldest_first_compose(monkeypatch, tmp_path):
     _isolate(monkeypatch, tmp_path)
-    _seed_mixed_session(store)
+    _seed_mixed_session(store, tmp_path / "repo")
 
     async def scenario() -> None:
         app = tui.RestoryMonitorApp(repo_root=tmp_path / "repo")
@@ -272,7 +278,7 @@ def test_blocked_only_and_oldest_first_compose(monkeypatch, tmp_path):
 
 def test_search_filters_rows(monkeypatch, tmp_path):
     _isolate(monkeypatch, tmp_path)
-    _seed_mixed_session(store)
+    _seed_mixed_session(store, tmp_path / "repo")
 
     async def scenario() -> None:
         app = tui.RestoryMonitorApp(repo_root=tmp_path / "repo")
@@ -298,7 +304,7 @@ def test_search_filters_rows(monkeypatch, tmp_path):
 
 def test_search_esc_clears_and_closes(monkeypatch, tmp_path):
     _isolate(monkeypatch, tmp_path)
-    _seed_mixed_session(store)
+    _seed_mixed_session(store, tmp_path / "repo")
 
     async def scenario() -> None:
         app = tui.RestoryMonitorApp(repo_root=tmp_path / "repo")
@@ -321,23 +327,27 @@ def test_search_esc_clears_and_closes(monkeypatch, tmp_path):
     asyncio.run(scenario())
 
 
-def _seed_secret_session(store):
-    """A safe and a blocked event both matching 'secret', plus one that doesn't."""
-    store.record_session("anchor", started_at="2026-08-28T00:00:00+00:00")
+def _seed_secret_session(store, repo_root):
+    """A safe and a blocked event both matching 'secret', plus one that doesn't.
+
+    Scoped to ``repo_root`` (see ``_seed_mixed_session``).
+    """
+    store.record_session("anchor", started_at="2026-08-28T00:00:00+00:00",
+                         repo_root=repo_root)
     store.append_event("Bash", [], False, "ok",
                        {"tool_input": {"command": "echo secret-value"}},
-                       timestamp="2026-08-28T00:01:00+00:00")
+                       timestamp="2026-08-28T00:01:00+00:00", repo_root=repo_root)
     store.append_event("Bash", ["net-egress"], True, "net-egress leak",
                        {"tool_input": {"command": "curl http://secret.example"}},
-                       timestamp="2026-08-28T00:02:00+00:00")
+                       timestamp="2026-08-28T00:02:00+00:00", repo_root=repo_root)
     store.append_event("Bash", ["mass-delete"], True, "removes files",
                        {"tool_input": {"command": "rm -rf build"}},
-                       timestamp="2026-08-28T00:03:00+00:00")
+                       timestamp="2026-08-28T00:03:00+00:00", repo_root=repo_root)
 
 
 def test_search_composes_with_blocked_only(monkeypatch, tmp_path):
     _isolate(monkeypatch, tmp_path)
-    _seed_secret_session(store)
+    _seed_secret_session(store, tmp_path / "repo")
 
     async def scenario() -> None:
         app = tui.RestoryMonitorApp(repo_root=tmp_path / "repo")
@@ -365,7 +375,7 @@ def test_search_composes_with_blocked_only(monkeypatch, tmp_path):
 
 def test_help_overlay_opens_and_closes(monkeypatch, tmp_path):
     _isolate(monkeypatch, tmp_path)
-    _seed_mixed_session(store)
+    _seed_mixed_session(store, tmp_path / "repo")
 
     async def scenario() -> None:
         app = tui.RestoryMonitorApp(repo_root=tmp_path / "repo")
@@ -403,7 +413,7 @@ def test_help_overlay_opens_and_closes(monkeypatch, tmp_path):
 
 def test_help_covers_every_app_binding(monkeypatch, tmp_path):
     _isolate(monkeypatch, tmp_path)
-    _seed_mixed_session(store)
+    _seed_mixed_session(store, tmp_path / "repo")
 
     async def scenario() -> None:
         app = tui.RestoryMonitorApp(repo_root=tmp_path / "repo")

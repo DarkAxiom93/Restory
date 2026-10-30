@@ -49,6 +49,39 @@ backtick escaping, and the shared `session_repo_mismatch` guard.
   reports 49/49 with **zero** known gaps (previously 33/33 with 2 gaps caught
   only by the undo safety net).
 
+## [1.0.7] - 2026-09-05
+
+### Security
+
+- **Stopped attacker-influenced command text from injecting live Markdown into
+  exported reports.** A `restory export` Markdown table renders each recorded
+  command inside a `` `…` `` code span, but command text is attacker-influenced
+  and cell-escaping did not neutralize backticks. A crafted command containing a
+  backtick could close the code span early and make the rest render as live
+  Markdown — an image or link outside the span — letting a dangerous, blocked
+  command read as clean in a report meant for a GitHub issue, PR, or social post.
+  Backticks in table cells are now replaced with a Markdown-inert look-alike, so
+  the whole value stays inside the code span as inert text.
+- **Applied the cross-repository undo guard in the terminal dashboard too.** The
+  `restory undo --session` command already refused to reset the work tree when a
+  session's recorded repository did not match the current one; the `restory
+  monitor` dashboard's undo action relied only on per-repo scoping and lacked the
+  same explicit check. Both entry points now share one guard and hard-fail
+  identically, so neither can ever reset a work tree to an anchor recorded for a
+  different repository.
+
+### Changed
+
+- Clarified in the README ("What restory does NOT do") that the Read tool is not
+  covered by restory's interception.
+
+### CI
+
+- Pinned the httpx test dependency and capped the starlette version range to
+  prevent transitive dependency drift, and made the UI test stub structurally
+  faithful (a `<head>` bootstrap plus a `/_next/static` bundle script) so the
+  server-shell tests pass on every runner.
+
 ## [1.0.6] - 2026-09-03
 
 ### Security
@@ -89,39 +122,6 @@ backtick escaping, and the shared `session_repo_mismatch` guard.
   `GIT_CONFIG_SYSTEM` pointed at the null device and with `core.hooksPath` and
   `core.attributesFile` overridden per invocation, so external filters,
   attributes, or hooks can neither alter nor execute during a snapshot.
-
-## [1.0.7] - 2026-09-05
-
-### Security
-
-- **Stopped attacker-influenced command text from injecting live Markdown into
-  exported reports.** A `restory export` Markdown table renders each recorded
-  command inside a `` `…` `` code span, but command text is attacker-influenced
-  and cell-escaping did not neutralize backticks. A crafted command containing a
-  backtick could close the code span early and make the rest render as live
-  Markdown — an image or link outside the span — letting a dangerous, blocked
-  command read as clean in a report meant for a GitHub issue, PR, or social post.
-  Backticks in table cells are now replaced with a Markdown-inert look-alike, so
-  the whole value stays inside the code span as inert text.
-- **Applied the cross-repository undo guard in the terminal dashboard too.** The
-  `restory undo --session` command already refused to reset the work tree when a
-  session's recorded repository did not match the current one; the `restory
-  monitor` dashboard's undo action relied only on per-repo scoping and lacked the
-  same explicit check. Both entry points now share one guard and hard-fail
-  identically, so neither can ever reset a work tree to an anchor recorded for a
-  different repository.
-
-### Changed
-
-- Clarified in the README ("What restory does NOT do") that the Read tool is not
-  covered by restory's interception.
-
-### CI
-
-- Pinned the httpx test dependency and capped the starlette version range to
-  prevent transitive dependency drift, and made the UI test stub structurally
-  faithful (a `<head>` bootstrap plus a `/_next/static` bundle script) so the
-  server-shell tests pass on every runner.
 
 ## [1.0.5] - 2026-08-31
 

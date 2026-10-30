@@ -29,3 +29,9 @@ test-env/
 
 .cursor/
 docs/demo-old.gif
+
+# Coverage artifacts (the CI badge job's committed SVG under .github/badges is
+# intentionally tracked; these raw reports are not).
+.coverage
+coverage.xml
+htmlcov/

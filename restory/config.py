@@ -10,6 +10,30 @@ import os
 from pathlib import Path
 
 
+# Environment variable that opts in to native desktop notifications on BLOCK.
+# Notifications are OFF by default; the feature is best-effort and never affects
+# the hook's stdout decision (see :mod:`restory.notify`).
+NOTIFY_ENV = "RESTORY_NOTIFY"
+
+# In-process override, mainly for embedders/tests. ``None`` means "defer to the
+# environment variable"; ``True``/``False`` force the feature on/off.
+NOTIFY_FLAG: bool | None = None
+
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def notifications_enabled() -> bool:
+    """Return whether BLOCK desktop notifications are opted in.
+
+    Precedence: the in-process :data:`NOTIFY_FLAG` config flag wins when set;
+    otherwise the ``RESTORY_NOTIFY`` env var is consulted (truthy = on). The
+    feature is OFF unless explicitly enabled.
+    """
+    if NOTIFY_FLAG is not None:
+        return NOTIFY_FLAG
+    return os.environ.get(NOTIFY_ENV, "").strip().lower() in _TRUTHY
+
+
 def find_repo_root(start: Path | None = None) -> Path:
     """Resolve the repository root.
 
